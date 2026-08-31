@@ -25,6 +25,7 @@ from . import __version__
 from .claude_client import ClaudeClient, ClaudeNotFound, ClaudeReply, Delta, format_prompt
 from .config import Config
 from .transcribe import Transcriber, TranscriptionError, build_transcriber, decode_wav
+from .transcript import TranscriptWriter
 
 log = logging.getLogger(__name__)
 
@@ -74,11 +75,7 @@ class App:
         self.transcript: list[TranscriptEntry] = []
         self._transcribe_lock = threading.Lock()
         self._transcript_lock = threading.Lock()
-        self._transcript_file = (
-            Path(config.transcript_file).expanduser() if config.transcript_file else None
-        )
-        if self._transcript_file is not None:
-            self._transcript_file.parent.mkdir(parents=True, exist_ok=True)
+        self.writer = TranscriptWriter(config.transcript_dir, config.transcript_file)
 
     # ------------------------------------------------------------- behaviour
 
@@ -94,9 +91,7 @@ class App:
         with self._transcript_lock:
             self.transcript.append(entry)
             del self.transcript[:-500]
-            if self._transcript_file is not None:
-                with self._transcript_file.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps({"time": entry.timestamp, "text": text}) + "\n")
+            self.writer.write(entry.timestamp, text)
         return entry
 
     def context_lines(self, supplied: list[str] | None = None) -> list[str]:
@@ -128,6 +123,7 @@ class App:
             "claudeError": claude_error,
             "claudeModel": self.config.claude.model,
             "workingDir": self.config.claude.working_dir or str(Path.cwd()),
+            "transcriptPath": self.writer.describe(),
             "sessionActive": bool(self.claude.session_id),
         }
 

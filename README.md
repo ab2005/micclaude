@@ -156,7 +156,7 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 | `trigger.require_prefix` | Require "hey claude", never a bare "claude" |
 | `trigger.fuzzy_min_length` | Lower it only if your wake word is short and unlike any real word |
 | `claude.include_context_lines` | How much recent speech Claude sees with each question |
-| `transcript_file` | Keep a JSON-lines log of everything heard |
+| `transcript_dir` | Where the transcript is kept, or nothing to keep none |
 
 ## Accuracy notes
 
@@ -171,11 +171,40 @@ Speech detection is an energy threshold applied after the browser's own noise
 suppression. Watch the level meter in the header while the room is quiet and
 while you talk, then set the sensitivity slider between the two.
 
+## The transcript
+
+Everything recognized is written to `~/.micclaude/transcripts`, as JSON lines
+rotated into one file per hour inside a directory per day:
+
+```
+~/.micclaude/transcripts/2026-08-31/14.jsonl
+{"time": 1756662004.31, "text": "интеграционные тесты снова отваливаются"}
+{"time": 1756662011.87, "text": "Клавдий, из-за чего это обычно бывает?"}
+```
+
+Day and hour are local time, so "what did I say yesterday afternoon" is one
+`ls` away. The directory and its files are created owner-only (`0700`/`0600`),
+because a transcript holds everything said near the microphone — including the
+half of the room that never addressed Claude.
+
+```bash
+micclaude --no-transcript                 # keep nothing
+micclaude --transcript-dir /srv/notes     # keep it somewhere else
+micclaude --transcript ~/all.jsonl        # one file, rotate it yourself
+```
+
+The page shows the current location in the settings panel, and says in the
+footer that the text is being kept. Nothing prunes old files; they are plain
+text and small, but they are yours to delete.
+
 ## Privacy and exposure
 
 - Audio is transcribed by a model running on your machine. It is uploaded to a
   third party only if you explicitly choose the `openai` backend, which the
   page then says in the footer.
+- The recognized **text** is written to disk by default, as described above.
+  The audio itself is never stored: each utterance lives in memory for the
+  length of one request.
 - The server binds `127.0.0.1`. It refuses requests carrying another origin or
   an unexpected `Host` header, so a page you visit elsewhere cannot drive your
   microphone session.
@@ -185,7 +214,7 @@ while you talk, then set the sensitivity slider between the two.
 ## Tests
 
 ```bash
-make test          # 149 unit tests: Python + JavaScript, no deps
+make test          # 167 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

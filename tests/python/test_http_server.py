@@ -44,6 +44,10 @@ class ServerTestCase(unittest.TestCase):
         config = Config()
         config.server.port = 0
         config.transcribe.backend = "null"
+        # Never write into the real home directory from a test.
+        self.transcripts = tempfile.TemporaryDirectory()
+        self.addCleanup(self.transcripts.cleanup)
+        config.transcript_dir = self.transcripts.name
         for section, values in self.config_overrides.items():
             for key, value in values.items():
                 setattr(getattr(config, section), key, value)
@@ -159,6 +163,15 @@ class ApiTests(ServerTestCase):
         self.post("/api/transcribe", tone(0.5).to_wav(), {"Content-Type": "audio/wav"})
         self.assertEqual([entry.text for entry in self.app.transcript], ["hello there"])
 
+    def test_recognized_speech_reaches_the_transcript_on_disk(self):
+        self.post("/api/transcribe", tone(0.5).to_wav(), {"Content-Type": "audio/wav"})
+        files = sorted(Path(self.transcripts.name).rglob("*.jsonl"))
+        self.assertEqual(len(files), 1, "one file for this hour")
+        self.assertEqual(json.loads(files[0].read_text())["text"], "hello there")
+
+    def test_health_says_where_the_transcript_goes(self):
+        self.assertEqual(self.json_get("/api/health")["transcriptPath"], self.transcripts.name)
+
     def test_ask_streams_deltas_then_done(self):
         response = self.post(
             "/api/ask",
@@ -261,8 +274,13 @@ class WebRootTests(unittest.TestCase):
 
 
 class ContextTests(unittest.TestCase):
+    def config(self, **overrides) -> Config:
+        """A config that keeps no transcript, so tests touch no home directory."""
+        config = Config(transcript_dir=None, **overrides)
+        return config
+
     def test_context_excludes_the_question_and_respects_the_limit(self):
-        config = Config()
+        config = self.config()
         config.claude.include_context_lines = 2
         app = App(config, transcriber=StubTranscriber(), claude=StubClaude())
         for text in ["one", "two", "three", "the question"]:
@@ -273,16 +291,16 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(any("the question" in line for line in lines))
 
     def test_context_can_be_disabled(self):
-        config = Config()
+        config = self.config()
         config.claude.include_context_lines = 0
         app = App(config, transcriber=StubTranscriber(), claude=StubClaude())
         app.record("something")
         self.assertEqual(app.context_lines(["[10:00] supplied"]), [])
 
-    def test_transcript_file_is_appended(self):
+    def test_a_fixed_transcript_file_is_appended(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "logs" / "transcript.jsonl"
-            config = Config(transcript_file=str(path))
+            config = self.config(transcript_file=str(path))
             app = App(config, transcriber=StubTranscriber(), claude=StubClaude())
             app.record("first")
             app.record("second")

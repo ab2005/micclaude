@@ -77,11 +77,14 @@ export const STRINGS = Object.freeze({
     'facts.model': 'Speech model',
     'facts.workingDir': 'Claude runs in',
     'facts.claudeModel': 'Claude model',
+    'facts.transcript': 'Transcript',
+    'facts.transcriptOff': 'not saved',
     'facts.default': 'default',
 
     'compose.placeholder': 'Or type a question for Claude',
     'footnote.local': 'Audio is transcribed on this machine and never leaves it.',
     'footnote.cloud': 'Audio is sent to your configured transcription API.',
+    'footnote.saved': 'The text is saved on this machine.',
 
     'notice.cancelled': 'Cancelled.',
     'notice.newSession': 'Started a new Claude session. Earlier questions are forgotten.',
@@ -162,11 +165,14 @@ export const STRINGS = Object.freeze({
     'facts.model': 'Модель распознавания',
     'facts.workingDir': 'Рабочая папка',
     'facts.claudeModel': 'Модель Claude',
+    'facts.transcript': 'Расшифровка',
+    'facts.transcriptOff': 'не сохраняется',
     'facts.default': 'по умолчанию',
 
     'compose.placeholder': 'Или напишите вопрос',
     'footnote.local': 'Звук распознаётся на этой машине и никуда не уходит.',
     'footnote.cloud': 'Звук уходит в указанный вами сервис распознавания.',
+    'footnote.saved': 'Текст сохраняется на этой машине.',
 
     'notice.cancelled': 'Отменено.',
     'notice.newSession': 'Начата новая сессия. Прежние вопросы забыты.',

@@ -154,8 +154,13 @@ class Config:
     that cancel a question; see micclaude/languages.py. Anything set
     explicitly still wins over the preset."""
 
+    transcript_dir: str | None = "~/.micclaude/transcripts"
+    """Where recognized speech is kept, as JSON lines rotated into one file per
+    hour inside a directory per day. Set to nothing to keep no transcript."""
+
     transcript_file: str | None = None
-    """Append every recognized utterance here as JSON lines."""
+    """One fixed file instead of the rotated directory, when you would rather
+    manage rotation yourself."""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

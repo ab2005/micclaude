@@ -96,6 +96,8 @@ if (chromium) {
       await page.waitForSelector('#facts dd', { state: 'attached' });
       assert.equal(await page.textContent('#status-text'), 'Not listening');
       assert.match(await page.textContent('#facts'), /stub/);
+      assert.match(await page.textContent('#facts'), /transcripts/, 'it says where speech is kept');
+      assert.match(await page.textContent('#footnote'), /saved on this machine/);
       assert.equal(await page.inputValue('#wake'), 'claude');
     });
 

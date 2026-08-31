@@ -75,7 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     other = parser.add_argument_group("other")
     other.add_argument("--wake", action="append", metavar="WORD", help="wake word (repeatable)")
-    other.add_argument("--transcript", metavar="PATH", help="append speech to a JSON-lines file")
+    other.add_argument(
+        "--transcript-dir",
+        metavar="DIR",
+        help="where to keep the transcript (default ~/.micclaude/transcripts)",
+    )
+    other.add_argument(
+        "--transcript",
+        metavar="PATH",
+        help="append everything to this one file instead of the rotated directory",
+    )
+    other.add_argument(
+        "--no-transcript", action="store_true", help="do not write speech to disk at all"
+    )
     other.add_argument("-v", "--verbose", action="count", default=0)
     return parser
 
@@ -114,8 +126,12 @@ def apply_overrides(config: Config, args: argparse.Namespace) -> Config:
 
     if args.wake:
         config.trigger.wake_words = args.wake
+    if args.transcript_dir:
+        config.transcript_dir = args.transcript_dir
     if args.transcript:
         config.transcript_file = args.transcript
+    if args.no_transcript:
+        config.transcript_dir = config.transcript_file = None
     return config
 
 

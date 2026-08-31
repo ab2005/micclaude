@@ -56,6 +56,7 @@ def main() -> int:
     cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
 
     config = apply_language(Config(), LANGUAGE)
+    config.transcript_dir = str(Path(tmp) / "transcripts")
     config.server.port = int(os.environ.get("MICCLAUDE_PORT", "0"))
     config.claude.binary = str(cli)
     config.claude.append_system_prompt = ""

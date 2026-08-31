@@ -20,6 +20,11 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(config.server.port, 8765)
         self.assertEqual(config.trigger.wake_words, ["claude"])
 
+    def test_a_transcript_is_kept_by_default(self):
+        config = load_config(None)
+        self.assertEqual(config.transcript_dir, "~/.micclaude/transcripts")
+        self.assertIsNone(config.transcript_file, "rotation unless a fixed file is asked for")
+
     def test_overlays_values(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = write(
@@ -117,6 +122,15 @@ class OverrideTests(unittest.TestCase):
 
     def test_wake_words_replace_the_default(self):
         self.assertEqual(self.parse("--wake", "computer").trigger.wake_words, ["computer"])
+
+    def test_transcript_flags(self):
+        self.assertEqual(self.parse("--transcript-dir", "/srv/logs").transcript_dir, "/srv/logs")
+        self.assertEqual(self.parse("--transcript", "t.jsonl").transcript_file, "t.jsonl")
+
+    def test_no_transcript_turns_off_both(self):
+        config = self.parse("--transcript-dir", "/srv/logs", "--no-transcript")
+        self.assertIsNone(config.transcript_dir)
+        self.assertIsNone(config.transcript_file)
 
     def test_defaults_are_untouched_without_flags(self):
         self.assertEqual(self.parse(), Config())

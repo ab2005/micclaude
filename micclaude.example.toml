@@ -7,7 +7,12 @@
 # below still wins. Same as `micclaude --lang ru`.
 language = "en"      # "en" | "ru"
 
-# Keep a log of everything the microphone heard (JSON lines).
+# Everything the microphone hears is kept here as JSON lines, one file per
+# hour inside a directory per day: 2026-08-31/14.jsonl. Comment it out (or run
+# with --no-transcript) to keep nothing.
+transcript_dir = "~/.micclaude/transcripts"
+
+# One fixed file instead, when you would rather handle rotation yourself.
 # transcript_file = "~/micclaude-transcript.jsonl"
 
 [server]

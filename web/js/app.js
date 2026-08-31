@@ -325,9 +325,20 @@ function translate() {
   // Elements whose text depends on state, not just the language.
   dom.listen.textContent = state.t(state.listening ? 'button.stopListening' : 'button.listen');
   dom.askNow.textContent = state.t(state.armed ? 'button.cancel' : 'button.ask');
-  if (refreshFacts.health) refreshFacts();
+  if (refreshFacts.health) {
+    refreshFacts();
+    refreshFootnote();
+  }
   showValues();
   idleStatus();
+}
+
+/** Say where the audio goes and whether the text is kept. */
+function refreshFootnote() {
+  const health = refreshFacts.health;
+  const parts = [state.t(health?.backend === 'openai' ? 'footnote.cloud' : 'footnote.local')];
+  if (health?.transcriptPath) parts.push(state.t('footnote.saved'));
+  dom.footnote.textContent = parts.join(' ');
 }
 
 function capitalize(word) {
@@ -461,6 +472,7 @@ function refreshFacts(health) {
     [state.t('facts.model'), `${facts.backend} · ${facts.model}`],
     [state.t('facts.workingDir'), facts.workingDir],
     [state.t('facts.claudeModel'), facts.claudeModel || state.t('facts.default')],
+    [state.t('facts.transcript'), facts.transcriptPath || state.t('facts.transcriptOff')],
   ];
   for (const [label, value] of rows) {
     const dt = document.createElement('dt');
@@ -546,11 +558,9 @@ async function boot() {
   try {
     const health = await api.getHealth();
     refreshFacts(health);
+    refreshFootnote();
     dom.backendTag.textContent = state.t(health.backend === 'openai' ? 'tag.cloudStt' : 'tag.localStt');
     if (health.claudeError) addNotice(health.claudeError, 'error');
-    if (health.backend === 'openai') {
-      dom.footnote.textContent = state.t('footnote.cloud');
-    }
   } catch (error) {
     addNotice(state.t('error.health', { error: error.message }), 'error');
   }
