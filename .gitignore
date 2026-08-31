@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+*.egg-info/
+dist/
+build/
+micclaude.toml
+*.jsonl
+.DS_Store

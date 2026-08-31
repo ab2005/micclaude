@@ -1,0 +1,52 @@
+# Copy to ./micclaude.toml or ~/.micclaude.toml and edit.
+# Every key is optional; anything omitted keeps its default.
+# `micclaude --print-config` shows the fully resolved values.
+
+# Keep a log of everything the microphone heard (JSON lines).
+# transcript_file = "~/micclaude-transcript.jsonl"
+
+[server]
+host = "127.0.0.1"   # loopback only: the page needs a secure context, and
+                     # localhost counts as one where a LAN address would not
+port = 8765
+open_browser = true
+
+[transcribe]
+backend = "faster-whisper"   # or "openai"
+model = "base.en"            # tiny.en | base.en | small.en | medium | large-v3
+compute_type = "int8"        # int8 on CPU, float16 on a GPU
+language = "en"
+# Biasing the decoder toward the wake word makes it far more reliable.
+initial_prompt = "The speaker addresses an assistant named Claude."
+
+# Cloud transcription instead of a local model:
+# backend = "openai"
+# api_key_env = "OPENAI_API_KEY"
+# api_model = "whisper-1"
+
+[audio]
+# Capture settings the browser uses. The settings panel changes them live;
+# these are the defaults it starts from.
+energy_threshold = 0.015   # RMS above which a frame counts as speech
+silence_ms = 700           # pause that ends a phrase
+max_utterance_ms = 30000
+
+[trigger]
+wake_words = ["claude"]
+aliases = ["cloud", "claud", "clawed", "clod"]   # common mishearings
+require_prefix = false     # true = only "hey claude ...", never a bare "claude ..."
+scan_window_words = 4      # the name must come near the start of the sentence
+
+[claude]
+# working_dir = "~/code/my-project"        # the repo Claude should answer about
+# model = "claude-sonnet-5"
+# permission_mode = "acceptEdits"          # let it edit files without prompting
+# allowed_tools = ["Read", "Grep", "Glob"] # read-only voice assistant
+continue_session = true    # spoken follow-ups keep their context
+include_context_lines = 6  # recent transcript lines sent with each question
+timeout = 180
+
+[speech]
+enabled = true             # speak replies with the browser's voice
+rate = 1.0
+max_chars = 700

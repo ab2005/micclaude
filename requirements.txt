@@ -1,0 +1,7 @@
+# The server itself needs nothing beyond the standard library, and the browser
+# supplies capture, wake-word detection and speech synthesis.
+#
+# Local speech-to-text does need a model runtime. Install it unless you plan to
+# set transcribe.backend = "openai":
+faster-whisper>=1.0.0
+numpy>=1.24
