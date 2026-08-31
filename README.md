@@ -9,6 +9,8 @@ by name. Replies stream into the page and are spoken back.
 Nothing leaves your machine until a wake word is heard. The rest of the
 conversation is transcribed locally and stays there.
 
+Русскоязычное руководство: **[docs/README.ru.md](docs/README.ru.md)**.
+
 ## How it works
 
 ```
@@ -103,6 +105,9 @@ spellings, never widened. `Клавдий` is seven letters with nothing ordinar
 beside it, so fuzzy matching stays on and still catches *Клавдия*, *Клавдию*
 and whatever else Whisper decides to write, including the Latin `Claude` it
 sometimes leaves mid-Russian.
+
+There is a Russian guide for using it day to day in
+[docs/README.ru.md](docs/README.ru.md).
 
 Adding a language is a preset in `server/micclaude/languages.py` plus a strings
 table in `web/js/i18n.js`; tests check that every language has a complete set of
