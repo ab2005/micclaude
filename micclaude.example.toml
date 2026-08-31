@@ -2,6 +2,11 @@
 # Every key is optional; anything omitted keeps its default.
 # `micclaude --print-config` shows the fully resolved values.
 
+# Spoken language. Sets the speech model, the wake word, the cancel phrases,
+# the voice and the interface language in one go; anything you set explicitly
+# below still wins. Same as `micclaude --lang ru`.
+language = "en"      # "en" | "ru"
+
 # Keep a log of everything the microphone heard (JSON lines).
 # transcript_file = "~/micclaude-transcript.jsonl"
 
@@ -13,9 +18,11 @@ open_browser = true
 
 [transcribe]
 backend = "faster-whisper"   # or "openai"
+# The .en models are English-only. For any other language use a multilingual
+# one: base | small | medium | large-v3. The preset for ru picks small.
 model = "base.en"            # tiny.en | base.en | small.en | medium | large-v3
 compute_type = "int8"        # int8 on CPU, float16 on a GPU
-language = "en"
+language = "en"              # Whisper code, or omit to detect it per phrase
 # Biasing the decoder toward the wake word makes it far more reliable.
 initial_prompt = "The speaker addresses an assistant named Claude."
 
@@ -32,10 +39,13 @@ silence_ms = 700           # pause that ends a phrase
 max_utterance_ms = 30000
 
 [trigger]
+# The language preset fills these in; override to rename the assistant.
 wake_words = ["claude"]
 aliases = ["cloud", "claud", "clawed", "clod"]   # common mishearings
 require_prefix = false     # true = only "hey claude ...", never a bare "claude ..."
 scan_window_words = 4      # the name must come near the start of the sentence
+fuzzy_min_length = 6       # shorter wake words match only their listed spellings:
+                           # a 4-letter name is one edit away from ordinary words
 
 [claude]
 # working_dir = "~/code/my-project"        # the repo Claude should answer about
@@ -48,5 +58,6 @@ timeout = 180
 
 [speech]
 enabled = true             # speak replies with the browser's voice
+lang = "en-US"             # BCP-47; the browser picks a voice for it
 rate = 1.0
 max_chars = 700

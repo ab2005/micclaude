@@ -18,11 +18,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "server"))
 
 from micclaude.claude_client import ClaudeClient  # noqa: E402
-from micclaude.config import Config  # noqa: E402
+from micclaude.config import Config, apply_language  # noqa: E402
 from micclaude.http_server import create_server  # noqa: E402
 from micclaude.transcribe import Utterance  # noqa: E402
 
 HEARD = os.environ.get("MICCLAUDE_FAKE_TRANSCRIPT", "hey claude, what is this?")
+LANGUAGE = os.environ.get("MICCLAUDE_LANG", "en")
 
 FAKE_CLI = """
 while [ "$#" -gt 0 ]; do
@@ -54,7 +55,7 @@ def main() -> int:
     cli.write_text("#!/bin/sh\n" + FAKE_CLI)
     cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
 
-    config = Config()
+    config = apply_language(Config(), LANGUAGE)
     config.server.port = int(os.environ.get("MICCLAUDE_PORT", "0"))
     config.claude.binary = str(cli)
     config.claude.append_system_prompt = ""

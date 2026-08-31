@@ -32,5 +32,7 @@ export function mergeSettings(defaults, preferences) {
     speech: { ...defaults.speech, ...preferences.speech },
     contextLines: preferences.contextLines ?? defaults.contextLines,
     deviceId: preferences.deviceId ?? null,
+    // The spoken language belongs to the server; the page only follows it.
+    language: defaults.language ?? 'en',
   };
 }

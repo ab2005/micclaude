@@ -8,6 +8,7 @@
 
 import * as api from './api.js';
 import { Capture, listInputDevices } from './capture.js';
+import { LANGUAGES, applyTranslations, createTranslator, resolveLanguage } from './i18n.js';
 import { Speaker } from './speech.js';
 import { TriggerKind, TriggerMatcher } from './trigger.js';
 import { encodeWav } from './wav.js';
@@ -45,11 +46,14 @@ const dom = {
     rate: el('rate'),
     rateValue: el('rate-value'),
     context: el('context'),
+    uiLanguage: el('ui-language'),
   },
 };
 
 const state = {
   settings: null,
+  language: 'en',
+  t: createTranslator('en'),
   preferences: loadPreferences(),
   matcher: null,
   speaker: null,
@@ -62,20 +66,9 @@ const state = {
 
 /* ------------------------------------------------------------------ status */
 
-const STATUS_TEXT = {
-  idle: 'Not listening',
-  listening: 'Listening',
-  hearing: 'Hearing you',
-  working: 'Transcribing',
-  thinking: 'Claude is thinking',
-  speaking: 'Speaking',
-  armed: 'Go ahead, I am listening',
-  error: 'Something went wrong',
-};
-
-function setStatus(stateName, text) {
+function setStatus(stateName) {
   dom.status.dataset.state = ['thinking', 'working'].includes(stateName) ? 'working' : stateName;
-  dom.statusText.textContent = text || STATUS_TEXT[stateName] || stateName;
+  dom.statusText.textContent = state.t(`status.${stateName}`);
 }
 
 function idleStatus() {
@@ -152,7 +145,7 @@ function addExchange(question) {
     finish(reply) {
       answerEl.classList.remove('cursor');
       if (reply.isError) card.dataset.error = 'true';
-      if (!text) answerEl.textContent = reply.text || '(no answer)';
+      if (!text) answerEl.textContent = reply.text || state.t('notice.noAnswer');
       const facts = [];
       if (reply.durationMs) facts.push(`${(reply.durationMs / 1000).toFixed(1)}s`);
       if (reply.costUsd) facts.push(`$${reply.costUsd.toFixed(3)}`);
@@ -190,7 +183,7 @@ async function handleText(text, { forceAsk = false, source = 'mic' } = {}) {
   if (state.armed) {
     setArmed(false);
     if (state.matcher.isCancel(clean)) {
-      addNotice('Cancelled.');
+      addNotice(state.t('notice.cancelled'));
       return undefined;
     }
     return ask(clean);
@@ -248,7 +241,7 @@ async function handleUtterance(utterance) {
 function setArmed(armed) {
   state.armed = armed;
   dom.askNow.dataset.active = String(armed);
-  dom.askNow.textContent = armed ? 'Cancel' : 'Ask now';
+  dom.askNow.textContent = state.t(armed ? 'button.cancel' : 'button.ask');
   idleStatus();
 }
 
@@ -256,7 +249,7 @@ function setArmed(armed) {
 
 async function startListening() {
   if (!Capture.supported) {
-    addNotice('This browser cannot capture audio. Chrome, Edge and Safari can.', 'error');
+    addNotice(state.t('error.noCapture'), 'error');
     return;
   }
   state.capture = new Capture({
@@ -270,15 +263,15 @@ async function startListening() {
     state.capture = null;
     addNotice(
       error.name === 'NotAllowedError'
-        ? 'Microphone permission was denied. Allow it in the address bar, then start again.'
-        : `Could not open the microphone: ${error.message}`,
+        ? state.t('error.micDenied')
+        : state.t('error.micFailed', { error: error.message }),
       'error',
     );
     setStatus('error');
     return;
   }
   state.listening = true;
-  dom.listen.textContent = 'Stop listening';
+  dom.listen.textContent = state.t('button.stopListening');
   dom.listen.dataset.active = 'true';
   dom.askNow.disabled = false;
   idleStatus();
@@ -290,7 +283,7 @@ async function stopListening() {
   state.capture = null;
   state.listening = false;
   setArmed(false);
-  dom.listen.textContent = 'Start listening';
+  dom.listen.textContent = state.t('button.listen');
   dom.listen.dataset.active = 'false';
   dom.askNow.disabled = true;
   updateMeter(0, false);
@@ -314,10 +307,50 @@ function applySettings({ persist = true } = {}) {
   dom.meterThreshold.style.insetInlineStart = `${
     Math.min(1, state.settings.audio.energy_threshold / 0.3) * 100
   }%`;
-  document.querySelectorAll('.wake-example').forEach((node) => {
-    node.textContent = state.settings.trigger.wake_words[0] || 'claude';
-  });
+  translate();
   if (persist) savePreferences(state.preferences);
+}
+
+/* ---------------------------------------------------------------- language */
+
+/** Re-render every string in the page for the current language. */
+function translate() {
+  const { wake_words: wake, cancel_phrases: cancel } = state.settings.trigger;
+  applyTranslations(document, state.t, {
+    // Wake words are matched lowercased; in a sentence it is a name.
+    wake: capitalize(wake[0] || 'claude'),
+    cancel: cancel[0] || 'never mind',
+  });
+  document.documentElement.lang = state.language;
+  // Elements whose text depends on state, not just the language.
+  dom.listen.textContent = state.t(state.listening ? 'button.stopListening' : 'button.listen');
+  dom.askNow.textContent = state.t(state.armed ? 'button.cancel' : 'button.ask');
+  if (refreshFacts.health) refreshFacts();
+  showValues();
+  idleStatus();
+}
+
+function capitalize(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function setLanguage(code) {
+  state.language = code;
+  state.t = createTranslator(code);
+  translate();
+  // These are built in JavaScript, so they need rebuilding rather than
+  // re-translating in place.
+  populateLanguages();
+  populateVoices();
+  populateDevices();
+}
+
+function populateLanguages() {
+  const select = dom.fields.uiLanguage;
+  select.textContent = '';
+  select.append(new Option(state.t('settings.uiLanguage.auto'), ''));
+  for (const [code, label] of Object.entries(LANGUAGES)) select.append(new Option(label, code));
+  select.value = state.preferences.uiLanguage || '';
 }
 
 function bindSettings() {
@@ -367,6 +400,16 @@ function bindSettings() {
     state.preferences.contextLines = value;
     applySettings();
   });
+  fields.uiLanguage.addEventListener('change', () => {
+    state.preferences.uiLanguage = fields.uiLanguage.value || null;
+    savePreferences(state.preferences);
+    setLanguage(resolveLanguage({
+      stored: state.preferences.uiLanguage,
+      server: state.settings.language,
+      navigatorLanguages: navigator.languages,
+    }));
+  });
+
   fields.device.addEventListener('change', async () => {
     state.settings.deviceId = fields.device.value || null;
     state.preferences.deviceId = state.settings.deviceId;
@@ -381,7 +424,7 @@ function bindSettings() {
 function showValues() {
   const { fields } = dom;
   fields.thresholdValue.textContent = Number(fields.threshold.value).toFixed(3);
-  fields.silenceValue.textContent = `${fields.silence.value} ms`;
+  fields.silenceValue.textContent = `${fields.silence.value} ${state.t('units.ms')}`;
   fields.rateValue.textContent = `${Number(fields.rate.value).toFixed(2)}×`;
 }
 
@@ -390,21 +433,21 @@ async function populateDevices() {
   const select = dom.fields.device;
   const chosen = state.settings.deviceId || '';
   select.textContent = '';
-  const fallback = new Option('System default', '');
+  const fallback = new Option(state.t('settings.device.default'), '');
   select.append(fallback);
   devices.forEach((device, index) => {
-    select.append(new Option(device.label || `Microphone ${index + 1}`, device.deviceId));
+    select.append(new Option(device.label || `${state.t('settings.microphone')} ${index + 1}`, device.deviceId));
   });
   select.value = devices.some((device) => device.deviceId === chosen) ? chosen : '';
 }
 
 function populateVoices() {
   const select = dom.fields.voice;
-  const voices = state.speaker.voices();
+  const voices = state.speaker.preferredVoices();
   if (voices.length === 0) return;
   const chosen = state.settings.speech.voice || '';
   select.textContent = '';
-  select.append(new Option('Browser default', ''));
+  select.append(new Option(state.t('settings.voice.default'), ''));
   voices.forEach((voice) => select.append(new Option(`${voice.name} (${voice.lang})`, voice.name)));
   select.value = voices.some((voice) => voice.name === chosen) ? chosen : '';
 }
@@ -415,9 +458,9 @@ function refreshFacts(health) {
   if (!facts) return;
   dom.facts.textContent = '';
   const rows = [
-    ['Speech model', `${facts.backend} · ${facts.model}`],
-    ['Claude runs in', facts.workingDir],
-    ['Claude model', facts.claudeModel || 'default'],
+    [state.t('facts.model'), `${facts.backend} · ${facts.model}`],
+    [state.t('facts.workingDir'), facts.workingDir],
+    [state.t('facts.claudeModel'), facts.claudeModel || state.t('facts.default')],
   ];
   for (const [label, value] of rows) {
     const dt = document.createElement('dt');
@@ -449,7 +492,7 @@ function bindControls() {
 
   dom.newSession.addEventListener('click', async () => {
     await api.resetSession();
-    addNotice('Started a new Claude session. Earlier questions are forgotten.');
+    addNotice(state.t('notice.newSession'));
     refreshFacts(await api.getHealth());
   });
 
@@ -481,28 +524,35 @@ async function boot() {
     const defaults = await api.getSettings();
     state.settings = mergeSettings(defaults, state.preferences);
   } catch (error) {
-    addNotice(`Could not reach the micclaude server: ${error.message}`, 'error');
+    addNotice(state.t('error.server', { error: error.message }), 'error');
     setStatus('error');
     return;
   }
+  state.language = resolveLanguage({
+    stored: state.preferences.uiLanguage,
+    server: state.settings.language,
+    navigatorLanguages: navigator.languages,
+  });
+  state.t = createTranslator(state.language);
   state.speaker = new Speaker(state.settings.speech);
   applySettings({ persist: false });
   bindSettings();
   bindControls();
   showSettings(Boolean(state.preferences.settingsOpen));
+  populateLanguages();
   populateVoices();
   await populateDevices();
 
   try {
     const health = await api.getHealth();
     refreshFacts(health);
-    dom.backendTag.textContent = health.backend === 'openai' ? 'cloud stt' : 'local stt';
+    dom.backendTag.textContent = state.t(health.backend === 'openai' ? 'tag.cloudStt' : 'tag.localStt');
     if (health.claudeError) addNotice(health.claudeError, 'error');
     if (health.backend === 'openai') {
-      dom.footnote.textContent = 'Audio is sent to your configured transcription API.';
+      dom.footnote.textContent = state.t('footnote.cloud');
     }
   } catch (error) {
-    addNotice(`Health check failed: ${error.message}`, 'error');
+    addNotice(state.t('error.health', { error: error.message }), 'error');
   }
   idleStatus();
 }

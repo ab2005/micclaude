@@ -11,8 +11,9 @@ import webbrowser
 
 from . import __version__
 from .claude_client import ClaudeNotFound
-from .config import Config, ConfigError, find_config_file, load_config
+from .config import Config, ConfigError, apply_language, find_config_file, load_config
 from .http_server import serve
+from .languages import PRESETS
 from .transcribe import TranscriptionError
 
 
@@ -27,6 +28,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"micclaude {__version__}")
     parser.add_argument("-c", "--config", help="path to a TOML config file")
     parser.add_argument("--print-config", action="store_true", help="show resolved config and exit")
+    parser.add_argument(
+        "--lang",
+        choices=sorted(PRESETS),
+        help=(
+            "spoken language. Sets the speech model, the wake word, the cancel phrases "
+            "and the voice in one go; later flags still win"
+        ),
+    )
 
     server = parser.add_argument_group("server")
     server.add_argument("--host", help="bind address (default 127.0.0.1; loopback is recommended)")
@@ -36,7 +45,15 @@ def build_parser() -> argparse.ArgumentParser:
     stt = parser.add_argument_group("transcription")
     stt.add_argument("--backend", choices=["faster-whisper", "openai", "null"])
     stt.add_argument("--model", help="whisper model, e.g. tiny.en, base.en, small.en, medium")
-    stt.add_argument("--language", help="spoken language code, or 'auto'")
+    stt.add_argument(
+        "--stt-language",
+        metavar="CODE",
+        help=(
+            "override just the recognition language with a Whisper code, or 'auto' to "
+            "detect it per phrase. --lang already sets this; use it for a language with "
+            "no preset"
+        ),
+    )
 
     claude = parser.add_argument_group("claude")
     claude.add_argument("--claude-model", help="model passed through to Claude Code")
@@ -64,6 +81,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def apply_overrides(config: Config, args: argparse.Namespace) -> Config:
+    # The language preset goes on first so that everything else overrides it.
+    if args.lang:
+        apply_language(config, args.lang)
+
     if args.host:
         config.server.host = args.host
     if args.port is not None:
@@ -75,8 +96,8 @@ def apply_overrides(config: Config, args: argparse.Namespace) -> Config:
         config.transcribe.backend = args.backend
     if args.model:
         config.transcribe.model = args.model
-    if args.language:
-        config.transcribe.language = None if args.language == "auto" else args.language
+    if args.stt_language:
+        config.transcribe.language = None if args.stt_language == "auto" else args.stt_language
 
     if args.claude_model:
         config.claude.model = args.claude_model
@@ -106,6 +127,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         config = apply_overrides(load_config(find_config_file(args.config)), args)
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        config.validate()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

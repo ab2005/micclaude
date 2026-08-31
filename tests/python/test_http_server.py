@@ -122,7 +122,7 @@ class ApiTests(ServerTestCase):
 
     def test_settings_are_client_safe(self):
         payload = self.json_get("/api/settings")
-        self.assertEqual(sorted(payload), ["audio", "contextLines", "speech", "trigger"])
+        self.assertEqual(sorted(payload), ["audio", "contextLines", "language", "speech", "trigger"])
         self.assertEqual(payload["trigger"]["wake_words"], ["claude"])
         self.assertNotIn("claude", payload, "CLI paths and tool grants stay on the server")
 

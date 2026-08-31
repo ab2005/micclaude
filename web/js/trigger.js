@@ -10,7 +10,9 @@
  *   "so I told claude about it"        -> none (wake word too late)
  *
  * Speech-to-text mangles names, so matching is fuzzy: "cloud", "clod" and
- * "claud" all count as "claude", while merely similar words do not.
+ * "claud" all count as "claude", while merely similar words do not. The wake
+ * word, its spellings and the cancel phrases all come from the server, which
+ * picks them per language -- see server/micclaude/languages.py.
  */
 
 export const TriggerKind = Object.freeze({
@@ -27,12 +29,13 @@ export const DEFAULT_TRIGGER = Object.freeze({
   require_prefix: false,
   fuzzy: true,
   max_wake_distance: 1,
+  fuzzy_min_length: 6,
   scan_window_words: 4,
   cancel_phrases: ['never mind', 'nevermind', 'cancel that', 'forget it'],
+  filler: ['please', 'um', 'uh', 'so', 'well', 'hey', 'okay', 'ok'],
   min_prompt_chars: 2,
 });
 
-const LEADING_FILLER = ['please', 'um', 'uh', 'so', 'well', 'hey', 'okay', 'ok'];
 const ADDRESS_WORDS = new Set(['there', 'yo']);
 
 /** Lowercase, strip accents and punctuation, collapse whitespace. */
@@ -73,6 +76,7 @@ export class TriggerMatcher {
     this.aliases = new Set((this.config.aliases || []).map(normalize).filter(Boolean));
     this.prefixes = new Set((this.config.prefixes || []).map(normalize));
     this.cancels = (this.config.cancel_phrases || []).map(normalize).filter(Boolean);
+    this.filler = (this.config.filler || []).map(normalize).filter(Boolean);
   }
 
   isCancel(text) {
@@ -93,7 +97,7 @@ export class TriggerMatcher {
       if (!matched) continue;
       if (this.config.require_prefix && !this.prefixes.has(words[index - 1])) continue;
       if (index > 0 && !this.isAddressing(words, index)) continue;
-      const prompt = cleanPrompt(originalTail(text, words.length, index));
+      const prompt = this.cleanPrompt(originalTail(text, words.length, index));
       if (prompt.length < this.config.min_prompt_chars) {
         return { kind: TriggerKind.ARM, prompt: '', matched };
       }
@@ -106,8 +110,10 @@ export class TriggerMatcher {
    * Return the wake word this word stands for, or "".
    *
    * Configured aliases must match exactly; only the canonical wake words are
-   * widened by edit distance. So "cloud" (a listed alias) triggers while the
-   * merely similar "loud" does not.
+   * widened by edit distance, and only when they are long enough that nothing
+   * ordinary sits next to them. So "cloud" (a listed alias) triggers while the
+   * merely similar "loud" does not, and Russian "код" never stands in for a
+   * four-letter name.
    */
   wakeHit(word) {
     if (this.wake.includes(word)) return word;
@@ -115,7 +121,8 @@ export class TriggerMatcher {
     if (this.config.fuzzy) {
       const budget = this.config.max_wake_distance;
       for (const wake of this.wake) {
-        if (wake.length >= 4 && levenshtein(word, wake, budget) <= budget) return wake;
+        if (wake.length < this.config.fuzzy_min_length) continue;
+        if (levenshtein(word, wake, budget) <= budget) return wake;
       }
     }
     return '';
@@ -128,6 +135,21 @@ export class TriggerMatcher {
   isAddressing(words, index) {
     return words.slice(0, index).every((word) => this.prefixes.has(word) || ADDRESS_WORDS.has(word));
   }
+
+  /** Strip punctuation and pleasantries from the front of the question. */
+  cleanPrompt(tail) {
+    let cleaned = stripLeadingPunctuation(tail);
+    for (;;) {
+      const lowered = normalize(cleaned);
+      const filler = this.filler.find(
+        (word) => lowered === word || lowered.startsWith(`${word} `),
+      );
+      if (!filler) return cleaned;
+      // Normalization only removes punctuation and case, so a word's length is
+      // the same in the original text.
+      cleaned = stripLeadingPunctuation(cleaned.slice(filler.length));
+    }
+  }
 }
 
 /**
@@ -135,19 +157,13 @@ export class TriggerMatcher {
  * used for matching, so the prompt keeps the casing and punctuation the
  * transcriber produced.
  */
+function stripLeadingPunctuation(text) {
+  return text.replace(/^[\s,.:;!?\-]+/, '').trim();
+}
+
 function originalTail(text, wordCount, index) {
   const remaining = wordCount - index - 1;
   if (remaining <= 0) return '';
   const tokens = (text.match(/\S+/g) || []);
   return tokens.slice(Math.max(0, tokens.length - remaining)).join(' ');
-}
-
-function cleanPrompt(tail) {
-  let cleaned = tail.trim().replace(/^[,.:;!?\-\s]+/, '').trim();
-  for (;;) {
-    const lowered = cleaned.toLowerCase();
-    const filler = LEADING_FILLER.find((word) => lowered.startsWith(`${word} `));
-    if (!filler) return cleaned;
-    cleaned = cleaned.slice(filler.length + 1).replace(/^[,.:;!?\-\s]+/, '').trim();
-  }
 }
