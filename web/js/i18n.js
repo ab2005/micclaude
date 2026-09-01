@@ -88,6 +88,7 @@ export const STRINGS = Object.freeze({
 
     'notice.cancelled': 'Cancelled.',
     'notice.newSession': 'Started a new Claude session. Earlier questions are forgotten.',
+    'notice.flag': 'Noticed: {rule}',
     'notice.noAnswer': '(no answer)',
     'error.noCapture': 'This browser cannot capture audio. Chrome, Edge and Safari can.',
     'error.micDenied':
@@ -176,6 +177,7 @@ export const STRINGS = Object.freeze({
 
     'notice.cancelled': 'Отменено.',
     'notice.newSession': 'Начата новая сессия. Прежние вопросы забыты.',
+    'notice.flag': 'Замечено: {rule}',
     'notice.noAnswer': '(нет ответа)',
     'error.noCapture': 'Этот браузер не умеет записывать звук. Подойдут Chrome, Edge или Safari.',
     'error.micDenied':

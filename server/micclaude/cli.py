@@ -73,6 +73,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--fresh-session", action="store_true", help="do not carry context between questions"
     )
 
+    observer = parser.add_argument_group("observer")
+    observer.add_argument(
+        "--observe",
+        action="store_true",
+        help="let Claude follow the conversation in batches and keep notes",
+    )
+    observer.add_argument(
+        "--observer-interval", type=float, metavar="SECONDS", help="seconds between batches"
+    )
+    observer.add_argument(
+        "--rule",
+        action="append",
+        metavar="TEXT",
+        help="standing instruction in plain language (repeatable), e.g. --rule 'flag any date'",
+    )
+    observer.add_argument("--notes-file", metavar="PATH", help="where to keep the running notes")
+
     other = parser.add_argument_group("other")
     other.add_argument("--wake", action="append", metavar="WORD", help="wake word (repeatable)")
     other.add_argument(
@@ -123,6 +140,16 @@ def apply_overrides(config: Config, args: argparse.Namespace) -> Config:
         config.claude.include_context_lines = 0
     if args.fresh_session:
         config.claude.continue_session = False
+
+    if args.observe:
+        config.observer.enabled = True
+    if args.observer_interval is not None:
+        config.observer.interval_s = args.observer_interval
+    if args.rule:
+        config.observer.rules = args.rule
+        config.observer.enabled = True
+    if args.notes_file:
+        config.observer.notes_file = args.notes_file
 
     if args.wake:
         config.trigger.wake_words = args.wake

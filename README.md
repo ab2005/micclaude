@@ -163,6 +163,48 @@ sentence reaches Claude the same way whoever heard it.
 | `POST /api/transcribe` | 16-bit WAV in, text out (what the page itself uses) |
 | `POST /api/ask` | A question in, the streamed reply out |
 
+## Following the conversation
+
+```bash
+micclaude --lang ru --observe \
+  --rule "someone names a date or a deadline" \
+  --rule "someone commits to doing something"
+```
+
+Every recognized line goes into a buffer; every couple of minutes the buffer is
+handed to **the same Claude session that answers your spoken questions**. It
+replies with a delta for the running notes and any flags that fired, and the
+notes are written to `~/.micclaude/notes.json` — readable while the meeting is
+still going, and served as a document at `/api/notes.md`.
+
+Because it is one session, a question asked later is answered by someone who
+sat through the whole thing: *"claude, what did we decide about the second
+one?"* needs no context plumbing.
+
+Three rules the design turns on:
+
+- **Silence is the normal answer.** A batch that produces empty lists is
+  expected. Only an explicit `say` is spoken aloud, and only when
+  `speak_flags` is on — an assistant that comments on everything gets switched
+  off within a meeting.
+- **The transcript is data, not instructions.** Anything anyone says in the
+  room arrives in the same session as your own requests, so batches go in
+  wrapped in an envelope that says so.
+- **Questions come first.** A batch is held back while a conversation with the
+  assistant is live, rather than making you wait behind one.
+
+Every entry in the notes carries the words it rests on:
+
+```markdown
+## Задачи
+
+- **Саша** — добавить healthcheck в docker-compose _(срок: пятница)_
+  > я до пятницы добавлю healthcheck в compose
+```
+
+That quote is not decoration. It is what makes a claim checkable — and it is
+also how each entry gets its timestamp, since a model asked for one invents it.
+
 ## Giving Claude your project
 
 By default Claude runs in the directory you started the server from. Point it
@@ -207,6 +249,8 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 | `trigger.fuzzy_min_length` | Lower it only if your wake word is short and unlike any real word |
 | `claude.include_context_lines` | How much recent speech Claude sees with each question |
 | `transcript_dir` | Where the transcript is kept, or nothing to keep none |
+| `observer.enabled` | Follow the conversation and keep notes, not just answer |
+| `observer.rules` | What to watch for, in plain language |
 
 ## Accuracy notes
 
@@ -264,7 +308,7 @@ text and small, but they are yours to delete.
 ## Tests
 
 ```bash
-make test          # 206 unit tests: Python + JavaScript, no deps
+make test          # 246 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

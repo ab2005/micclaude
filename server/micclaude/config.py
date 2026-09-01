@@ -128,6 +128,39 @@ class ClaudeConfig:
 
 
 @dataclass
+class ObserverConfig:
+    """Claude following the conversation in batches, between questions."""
+
+    enabled: bool = False
+    """Off unless asked for: it spends the same budget your questions do."""
+
+    interval_s: float = 150.0
+    """Seconds between batches. Keep it under the prompt cache window, or
+    every batch pays to re-read the conversation from scratch."""
+
+    poll_s: float = 5.0
+    """How often to check whether a batch is due."""
+
+    min_lines: int = 2
+    """Do not spend a turn on a single stray line."""
+
+    max_lines: int = 40
+    """Send early rather than let a fast conversation pile up."""
+
+    quiet_after_question_s: float = 20.0
+    """Hold batches back while a conversation with the assistant is live, so a
+    spoken question is not stuck behind one."""
+
+    notes_file: str | None = "~/.micclaude/notes.json"
+    rules: list[str] = field(default_factory=list)
+    """Standing instructions in plain language: what to watch for and flag."""
+
+    speak_flags: bool = False
+    """Read an urgent flag out loud. Off by default -- interrupting a meeting
+    is a big thing to do on a misheard sentence."""
+
+
+@dataclass
 class SpeechConfig:
     """Browser speech synthesis for replies."""
 
@@ -147,6 +180,7 @@ class Config:
     transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
     trigger: TriggerConfig = field(default_factory=TriggerConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    observer: ObserverConfig = field(default_factory=ObserverConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
 
     language: str = "en"
@@ -183,6 +217,7 @@ class Config:
             "speech": asdict(self.speech),
             "contextLines": self.claude.include_context_lines,
             "language": self.language,
+            "observer": {"enabled": self.observer.enabled, "speakFlags": self.observer.speak_flags},
         }
 
 

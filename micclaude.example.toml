@@ -61,6 +61,26 @@ continue_session = true    # spoken follow-ups keep their context
 include_context_lines = 6  # recent transcript lines sent with each question
 timeout = 180
 
+[observer]
+# Claude follows the conversation in batches and keeps running notes.
+# Off by default: it spends the same budget your spoken questions do.
+enabled = false
+interval_s = 150          # seconds between batches; keep it under the prompt
+                          # cache window or every batch re-reads from scratch
+min_lines = 2             # do not spend a turn on one stray line
+max_lines = 40            # send early rather than let a fast talk pile up
+quiet_after_question_s = 20   # hold batches while a conversation is live
+notes_file = "~/.micclaude/notes.json"
+speak_flags = false       # read urgent flags out loud
+
+# Standing instructions, in plain language. Anything that fires becomes a flag
+# with the words that triggered it.
+rules = [
+  # "someone names a date or a deadline",
+  # "someone commits to doing something",
+  # "a discussion ends without a decision",
+]
+
 [speech]
 enabled = true             # speak replies with the browser's voice
 lang = "en-US"             # BCP-47; the browser picks a voice for it

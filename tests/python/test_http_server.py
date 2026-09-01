@@ -27,6 +27,11 @@ class StubClaude:
     def resolve_binary(self):
         return "/usr/bin/claude"
 
+    def ask(self, prompt):
+        """One-shot turns: what the observer uses for a batch."""
+        self.prompts.append(prompt)
+        return ClaudeReply(text="{}", session_id="s1")
+
     def stream(self, prompt):
         self.prompts.append(prompt)
         yield from self.events
@@ -126,7 +131,7 @@ class ApiTests(ServerTestCase):
 
     def test_settings_are_client_safe(self):
         payload = self.json_get("/api/settings")
-        self.assertEqual(sorted(payload), ["audio", "contextLines", "language", "speech", "trigger"])
+        self.assertEqual(sorted(payload), ["audio", "contextLines", "language", "observer", "speech", "trigger"])
         self.assertEqual(payload["trigger"]["wake_words"], ["claude"])
         self.assertNotIn("claude", payload, "CLI paths and tool grants stay on the server")
 
