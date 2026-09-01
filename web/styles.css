@@ -311,6 +311,19 @@ main:has(.settings:not([hidden])) {
   font-size: 13px;
 }
 
+.notice[data-kind="flag"] {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-inline-start: 3px solid var(--accent);
+}
+
+.notice[data-kind="flag"] q {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 .notice[data-kind="error"] {
   background: transparent;
   border: 1px solid var(--danger);

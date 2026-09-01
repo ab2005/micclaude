@@ -26,6 +26,8 @@ from . import __version__
 from .broadcast import Broadcaster
 from .claude_client import ClaudeClient, ClaudeNotFound, ClaudeReply, Delta, format_prompt
 from .config import Config
+from .notes import Notes
+from .observer import Observer
 from .transcribe import Transcriber, TranscriptionError, build_transcriber, decode_wav
 from .transcript import TranscriptWriter
 
@@ -58,6 +60,9 @@ class TranscriptEntry:
     source: str = "browser"
     """Where the text came from: the page's own microphone, or a recorder."""
 
+    speaker: str | None = None
+    """Who said it, when the transcriber can tell. Usually nobody can."""
+
     client: str | None = None
     """Opaque id of whoever posted it, so a page can ignore its own echo."""
 
@@ -70,6 +75,7 @@ class TranscriptEntry:
             "time": self.timestamp,
             "text": self.text,
             "source": self.source,
+            "speaker": self.speaker,
             "client": self.client,
         }
 
@@ -91,6 +97,12 @@ class App:
         self.web_root = (web_root or find_web_root()).resolve()
         self.transcript: list[TranscriptEntry] = []
         self.events = Broadcaster()
+        self.observer = Observer(
+            config.observer,
+            self.claude,
+            notes=Notes.load(config.observer.notes_file) if config.observer.notes_file else Notes(),
+            publish=self.events.publish,
+        )
         self._ids = itertools.count(1)
         self._transcribe_lock = threading.Lock()
         self._transcript_lock = threading.Lock()
@@ -112,6 +124,7 @@ class App:
         source: str = "browser",
         client: str | None = None,
         timestamp: float | None = None,
+        speaker: str | None = None,
     ) -> TranscriptEntry:
         """Store one recognized utterance and tell every open page about it."""
         entry = TranscriptEntry(
@@ -119,6 +132,7 @@ class App:
             text=text,
             id=next(self._ids),
             source=source,
+            speaker=speaker,
             client=client,
         )
         with self._transcript_lock:
@@ -126,6 +140,7 @@ class App:
             del self.transcript[:-500]
             self.writer.write(entry.timestamp, text)
         self.events.publish("utterance", entry.to_dict())
+        self.observer.add(text, entry.timestamp, speaker=entry.speaker)
         return entry
 
     def recent(self, limit: int = 100) -> list[TranscriptEntry]:
@@ -163,6 +178,7 @@ class App:
             "claudeModel": self.config.claude.model,
             "workingDir": self.config.claude.working_dir or str(Path.cwd()),
             "transcriptPath": self.writer.describe(),
+            "observing": self.config.observer.enabled,
             "sessionActive": bool(self.claude.session_id),
         }
 
@@ -175,6 +191,12 @@ class App:
         loader = getattr(self.transcriber, "load", None)
         if callable(loader):
             loader()
+        self.observer.start()
+
+    def shutdown(self) -> None:
+        """Send whatever the observer still holds, then let go."""
+        self.observer.stop()
+        self.events.close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -239,6 +261,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.app.client_settings())
         if path == "/api/events":
             return self._events()
+        if path == "/api/notes":
+            return self._json(
+                {
+                    "notes": self.app.observer.notes.to_dict(),
+                    "counts": self.app.observer.counts(),
+                    "pending": self.app.observer.pending,
+                    "enabled": self.app.config.observer.enabled,
+                }
+            )
+        if path == "/api/notes.md":
+            body = self.app.observer.notes.to_markdown(self.app.config.language).encode("utf-8")
+            return self._send(HTTPStatus.OK, body, "text/markdown; charset=utf-8")
         if path == "/api/transcript":
             return self._json({"entries": [e.to_dict() for e in self.app.recent()]})
         if path.startswith("/api/"):
@@ -266,6 +300,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session/reset":
             self.app.claude.reset()
             return self._json({"ok": True})
+        if path == "/api/notes/flush":
+            try:
+                result = self.app.observer.flush()
+            except Exception as exc:  # a bad batch must not kill the connection
+                log.exception("flushing the observer failed")
+                return self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"batch failed: {exc}")
+            return self._json(
+                {
+                    "sent": result is not None,
+                    "counts": self.app.observer.counts(),
+                    "error": getattr(result, "error", None),
+                }
+            )
         return self._error(HTTPStatus.NOT_FOUND, f"no such endpoint: {path}")
 
     # -------------------------------------------------------------- handlers
@@ -313,11 +360,13 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             return self._error(HTTPStatus.BAD_REQUEST, "'text' is required")
         timestamp = payload.get("time")
+        speaker = payload.get("speaker")
         entry = self.app.record(
             text,
             source=str(payload.get("source") or "recorder"),
             client=self.headers.get("X-Client-Id"),
             timestamp=float(timestamp) if isinstance(timestamp, (int, float)) else None,
+            speaker=str(speaker).strip() or None if speaker else None,
         )
         self._json(entry.to_dict(), HTTPStatus.CREATED)
 
@@ -337,6 +386,7 @@ class Handler(BaseHTTPRequestHandler):
         context = payload.get("context")
         context = [str(line) for line in context] if isinstance(context, list) else None
         prompt = format_prompt(question, self.app.context_lines(context))
+        self.app.observer.note_question()
         self._stream_sse(self._claude_events(prompt))
 
     def _claude_events(self, prompt: str) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -425,7 +475,7 @@ def serve(
     except KeyboardInterrupt:
         pass
     finally:
-        app.events.close()
+        app.shutdown()
         server.shutdown()
         server.server_close()
     return 0

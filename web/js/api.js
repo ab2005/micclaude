@@ -46,6 +46,13 @@ async function getJson(path) {
 export const getHealth = () => getJson('/api/health');
 export const getSettings = () => getJson('/api/settings');
 export const getTranscript = () => getJson('/api/transcript');
+export const getNotes = () => getJson('/api/notes');
+
+/** Send whatever the observer is holding right now. */
+export async function flushNotes() {
+  const response = await fetch('/api/notes/flush', { method: 'POST' });
+  return response.json();
+}
 
 /**
  * This page's identity, so it can ignore the echo of its own utterances
@@ -60,15 +67,20 @@ export const clientId = `page-${Math.random().toString(36).slice(2, 10)}`;
  * Returns a function that unsubscribes. EventSource reconnects on its own, so
  * a server restart does not need a page reload.
  */
-export function subscribe({ onUtterance, onOpen, onError } = {}) {
+export function subscribe({ onUtterance, onFlag, onNotes, onSay, onOpen, onError } = {}) {
   const source = new EventSource('/api/events');
-  source.addEventListener('utterance', (event) => {
+  const on = (name, handler) => source.addEventListener(name, (event) => {
+    if (!handler) return;
     try {
-      onUtterance?.(JSON.parse(event.data));
+      handler(JSON.parse(event.data));
     } catch (error) {
-      console.warn('bad utterance event', error);
+      console.warn(`bad ${name} event`, error);
     }
   });
+  on('utterance', onUtterance);
+  on('flag', onFlag);
+  on('notes', onNotes);
+  on('say', onSay);
   source.addEventListener('open', () => onOpen?.());
   source.addEventListener('error', () => onError?.());
   return () => source.close();

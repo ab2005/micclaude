@@ -116,6 +116,28 @@ function addNotice(text, kind = 'info') {
   return notice;
 }
 
+/** Something a standing instruction told the observer to watch for. */
+function addFlag(flag) {
+  dom.empty?.remove();
+  const card = document.createElement('div');
+  card.className = 'notice';
+  card.dataset.kind = 'flag';
+
+  const label = document.createElement('b');
+  label.textContent = flag.rule ? state.t('notice.flag', { rule: flag.rule }) : flag.text;
+  const body = document.createElement('div');
+  body.textContent = flag.rule ? flag.text : '';
+  card.append(label, body);
+
+  if (flag.quote) {
+    const quote = document.createElement('q');
+    quote.textContent = flag.quote;
+    card.append(quote);
+  }
+  dom.feed.append(card);
+  scrollToEnd();
+}
+
 /** Render a question card whose answer fills in as it streams. */
 function addExchange(question) {
   dom.empty?.remove();
@@ -507,6 +529,17 @@ function subscribeToServer() {
     onUtterance(entry) {
       if (entry.client === api.clientId) return;
       handleText(entry.text, { source: entry.source || 'recorder' });
+    },
+    onFlag(flag) {
+      addFlag(flag);
+    },
+    onSay(payload) {
+      // Only the observer decides to interrupt, and only when a standing
+      // instruction asked it to.
+      if (state.settings.observer?.speakFlags && state.speaker.available) {
+        state.speaker.say(payload.text);
+      }
+      addNotice(payload.text, 'flag');
     },
   });
 }

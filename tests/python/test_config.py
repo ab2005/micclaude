@@ -77,7 +77,7 @@ class LoadTests(unittest.TestCase):
         config.claude.allowed_tools = ["Read"]
         config.claude.working_dir = "/srv/secret"
         settings = config.client_settings()
-        self.assertEqual(sorted(settings), ["audio", "contextLines", "language", "speech", "trigger"])
+        self.assertEqual(sorted(settings), ["audio", "contextLines", "language", "observer", "speech", "trigger"])
         self.assertNotIn("/srv/secret", str(settings))
 
 
