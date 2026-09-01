@@ -193,6 +193,12 @@ Three rules the design turns on:
 - **Questions come first.** A batch is held back while a conversation with the
   assistant is live, rather than making you wait behind one.
 
+The **Notes** tab in the page shows it as it fills in, with a button to finish
+the meeting — which asks for a closing summary and writes a dated document next
+to the notes. The conversation stays open afterwards, so you can keep asking
+about what was said. **New meeting** clears the notes and leaves the session
+alone.
+
 Every entry in the notes carries the words it rests on:
 
 ```markdown
@@ -251,6 +257,7 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 | `transcript_dir` | Where the transcript is kept, or nothing to keep none |
 | `observer.enabled` | Follow the conversation and keep notes, not just answer |
 | `observer.rules` | What to watch for, in plain language |
+| `transcribe.drop_phrases` | Subtitle ghosts Whisper invents out of silence |
 
 ## Accuracy notes
 
@@ -260,6 +267,12 @@ also match within one edit. Similar but distinct words (`loud`, `clouds`,
 `claudia`, Russian `код`) deliberately do not trigger. Setting
 `transcribe.initial_prompt` to a sentence containing the name biases the
 decoder and helps further.
+
+Whisper was trained partly on subtitles, and fills silence with the credits it
+learned there — "Продолжение следует...", "Thanks for watching!". Those are
+dropped when they are the *whole* utterance, since someone really can say thank
+you. `condition_on_previous_text` is off for the same family of reasons: it
+stops one bad guess snowballing into a repeating loop.
 
 Speech detection is an energy threshold applied after the browser's own noise
 suppression. Watch the level meter in the header while the room is quiet and
@@ -308,7 +321,7 @@ text and small, but they are yours to delete.
 ## Tests
 
 ```bash
-make test          # 246 unit tests: Python + JavaScript, no deps
+make test          # 256 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

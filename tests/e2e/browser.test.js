@@ -173,6 +173,86 @@ if (chromium) {
     assert.deepEqual(errors, [], 'no uncaught page errors');
   });
 
+  test('the notes panel', async (t) => {
+    const { server, url } = await startServer({ MICCLAUDE_OBSERVE: '1' });
+    const browser = await chromium.launch();
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    t.after(async () => {
+      await browser.close();
+      server.kill();
+    });
+
+    const post = (path, body) => fetch(new URL(path, url), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    await page.goto(url);
+    await page.waitForSelector('#facts dd', { state: 'attached' });
+
+    await t.test('it starts empty and says so', async () => {
+      await page.click('#notes-toggle');
+      await page.waitForSelector('#panel-notes:visible');
+      assert.match(await page.textContent('#notes-body'), /Nothing yet/);
+      assert.equal(await page.getAttribute('#tab-notes', 'aria-selected'), 'true');
+    });
+
+    await t.test('a batch fills it in, quotes and all', async () => {
+      await post('/api/utterance', { text: 'the tests time out on CI' });
+      await post('/api/utterance', { text: 'I will add a healthcheck by Friday' });
+      await post('/api/notes/flush');
+
+      await page.click('#tab-settings');
+      await page.click('#tab-notes');  // reopening refetches
+      await page.waitForSelector('.notes-section');
+      const text = await page.textContent('#panel-notes');
+      assert.match(text, /noted: the tests time out on CI/);
+      assert.match(text, /Flagged/);
+      assert.equal(await page.textContent('#notes-title'), 'Test meeting');
+      assert.match(await page.textContent('.notes-section q'), /the tests time out on CI/,
+        'every line keeps the words it came from');
+
+      // The flag also arrived over the event stream as a card in the feed.
+      const flag = await page.textContent('.notice[data-kind=flag]');
+      assert.match(flag, /Noticed: test rule/);
+      assert.match(flag, /the tests time out on CI/, 'with the words that fired it');
+    });
+
+    await t.test('finishing asks for a summary and keeps the conversation', async () => {
+      await page.click('#finish-meeting');
+      await page.waitForSelector('.exchange .answer:not(.cursor)');
+      assert.match(
+        await page.textContent('.exchange .answer'),
+        /Обсудили падающие тесты/,
+        'the closing request is answered in prose, not JSON',
+      );
+      const notices = await page.$$eval('.notice', (nodes) => nodes.map((n) => n.textContent));
+      assert.match(notices.at(-1), /Meeting finished/);
+    });
+
+    await t.test('a new meeting clears the notes', async () => {
+      await page.click('#clear-notes');
+      await page.waitForFunction(
+        () => document.querySelectorAll('#notes-body .notes-section').length === 0,
+        null,
+        { timeout: 10000 },
+      );
+      assert.match(await page.textContent('#notes-body'), /Nothing yet/);
+    });
+
+    await t.test('the panel choice survives a reload', async () => {
+      await page.reload();
+      await page.waitForSelector('#panel-notes:visible');
+    });
+
+    assert.deepEqual(errors, [], 'no uncaught page errors');
+  });
+
   test('russian end-to-end', async (t) => {
     const { server, url } = await startServer({
       MICCLAUDE_LANG: 'ru',

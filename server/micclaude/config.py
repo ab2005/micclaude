@@ -60,6 +60,33 @@ class TranscribeConfig:
     initial_prompt: str | None = "The speaker addresses an assistant named Claude."
     """Biasing text; naming the wake word here helps Whisper spell it right."""
 
+    condition_on_previous_text: bool = False
+    """Whisper's default is to feed each chunk its own previous output, which
+    makes one bad guess snowball into a repeating loop. We transcribe whole
+    phrases anyway, so there is little to lose and a runaway to avoid."""
+
+    drop_phrases: list[str] = field(
+        default_factory=lambda: [
+            "продолжение следует",
+            "продолжение следует...",
+            "спасибо за просмотр",
+            "спасибо за просмотр!",
+            "субтитры сделал dimatorzok",
+            "редактор субтитров а.синецкая",
+            "корректор а.егорова",
+            "подписывайтесь на канал",
+            "thanks for watching",
+            "thanks for watching!",
+            "thank you for watching",
+            "subtitles by the amara.org community",
+            "please subscribe",
+            "you",
+        ]
+    )
+    """Phrases Whisper hallucinates out of silence, learned from subtitle data.
+    Matched against the whole utterance only -- someone really can say "thank
+    you", and dropping that would be worse than the occasional phantom."""
+
     api_base: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
     api_model: str = "whisper-1"

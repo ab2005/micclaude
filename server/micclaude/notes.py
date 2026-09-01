@@ -28,6 +28,7 @@ HEADINGS = {
     "en": {
         "untitled": "Meeting",
         "due": "by",
+        "summary": "Summary",
         "sections": {
             "points": "Points",
             "decisions": "Decisions",
@@ -39,6 +40,7 @@ HEADINGS = {
     "ru": {
         "untitled": "Встреча",
         "due": "срок:",
+        "summary": "Итоги",
         "sections": {
             "points": "Тезисы",
             "decisions": "Решения",

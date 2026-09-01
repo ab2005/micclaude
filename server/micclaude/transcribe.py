@@ -12,6 +12,7 @@ from __future__ import annotations
 import array
 import io
 import json
+import re
 import logging
 import math
 import os
@@ -20,7 +21,7 @@ import urllib.request
 import uuid
 import wave
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from .config import TranscribeConfig
 
@@ -162,9 +163,14 @@ class FasterWhisperTranscriber:
             language=self.config.language,
             beam_size=self.config.beam_size,
             initial_prompt=self.config.initial_prompt,
+            condition_on_previous_text=self.config.condition_on_previous_text,
             vad_filter=False,
         )
-        return " ".join(segment.text.strip() for segment in segments).strip()
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        if is_phantom(text, self.config.drop_phrases):
+            log.info("dropping a phantom phrase from silence: %r", text)
+            return ""
+        return text
 
 
 class OpenAITranscriber:
@@ -224,7 +230,17 @@ def _multipart(fields: dict[str, str], *, filename: str, file_bytes: bytes) -> t
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def _has_cuda() -> bool:
+def is_phantom(text: str, phrases: Sequence[str]) -> bool:
+    """Is this the whole utterance, and one of Whisper's subtitle ghosts?
+
+    Trained partly on subtitles, Whisper fills silence with the credits it
+    learned there. The match is on the entire utterance: these words are only
+    suspicious when they are all that came back.
+    """
+    cleaned = re.sub(r"[\s\u00a0]+", " ", (text or "").strip().lower()).strip(" .!?,-—…")
+    if not cleaned:
+        return False
+    return any(cleaned == re.sub(r"\s+", " ", phrase.strip().lower()).strip(" .!?,-—…") for phrase in phrases)
     try:
         import ctranslate2  # type: ignore
 

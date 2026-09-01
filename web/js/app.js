@@ -24,7 +24,18 @@ const dom = {
   listen: el('listen'),
   askNow: el('ask-now'),
   settingsToggle: el('settings-toggle'),
-  settings: el('settings'),
+  notesToggle: el('notes-toggle'),
+  rail: el('rail'),
+  tabs: [...document.querySelectorAll('.tab')],
+  panels: {
+    notes: el('panel-notes'),
+    settings: el('panel-settings'),
+  },
+  notesBody: el('notes-body'),
+  notesStatus: el('notes-status'),
+  notesTitle: el('notes-title'),
+  finishMeeting: el('finish-meeting'),
+  clearNotes: el('clear-notes'),
   feed: el('feed'),
   empty: el('empty'),
   facts: el('facts'),
@@ -59,6 +70,8 @@ const state = {
   speaker: null,
   capture: null,
   transcript: [],
+  notes: null,
+  panel: 'notes',
   armed: false,
   busy: false,
   listening: false,
@@ -355,6 +368,7 @@ function translate() {
     refreshFacts();
     refreshFootnote();
   }
+  if (state.notes) renderNotes();
   showValues();
   idleStatus();
 }
@@ -511,9 +525,109 @@ function refreshFacts(health) {
 
 /* ------------------------------------------------------------------- boot */
 
-function showSettings(open) {
-  dom.settings.hidden = !open;
-  dom.settingsToggle.setAttribute('aria-expanded', String(open));
+/** Open the rail on a panel, or close it. */
+function showRail(panel) {
+  const open = Boolean(panel);
+  dom.rail.hidden = !open;
+  if (open) state.panel = panel;
+  for (const [name, node] of Object.entries(dom.panels)) {
+    node.hidden = !open || name !== state.panel;
+  }
+  for (const tab of dom.tabs) {
+    tab.setAttribute('aria-selected', String(open && tab.dataset.panel === state.panel));
+  }
+  dom.settingsToggle.setAttribute('aria-expanded', String(open && state.panel === 'settings'));
+  dom.notesToggle.setAttribute('aria-expanded', String(open && state.panel === 'notes'));
+  if (open && state.panel === 'notes') refreshNotes();
+}
+
+/** Clicking the header button opens that panel, or closes an open one. */
+function toggleRail(panel) {
+  const showing = dom.rail.hidden || state.panel !== panel;
+  showRail(showing ? panel : null);
+  state.preferences.rail = showing ? panel : null;
+  savePreferences(state.preferences);
+}
+
+/* -------------------------------------------------------------------- notes */
+
+const NOTE_SECTIONS = ['points', 'decisions', 'tasks', 'questions', 'flags'];
+
+async function refreshNotes() {
+  try {
+    state.notes = await api.getNotes();
+  } catch (error) {
+    dom.notesStatus.textContent = String(error.message || error);
+    return;
+  }
+  renderNotes();
+}
+
+function renderNotes() {
+  const payload = state.notes;
+  if (!payload) return;
+  const { notes, pending, enabled } = payload;
+
+  dom.notesTitle.textContent = notes.title || state.t('notes.title');
+  dom.notesStatus.textContent = !enabled
+    ? state.t('notes.off')
+    : pending
+      ? state.t('notes.pending', { count: pending })
+      : '';
+  dom.finishMeeting.disabled = !enabled;
+
+  dom.notesBody.textContent = '';
+  let empty = true;
+  for (const name of NOTE_SECTIONS) {
+    const entries = notes[name] || [];
+    if (entries.length === 0) continue;
+    empty = false;
+
+    const section = document.createElement('section');
+    section.className = 'notes-section';
+    const heading = document.createElement('h3');
+    heading.textContent = state.t(`notes.section.${name}`);
+    const list = document.createElement('ul');
+
+    for (const entry of entries) {
+      const item = document.createElement('li');
+      const line = document.createElement('span');
+      const who = entry.who ? `${entry.who} — ` : '';
+      const due = entry.due ? ` (${entry.due})` : '';
+      line.textContent = `${who}${entry.text}${due}`;
+      item.append(line);
+      if (entry.quote) {
+        const quote = document.createElement('q');
+        quote.textContent = entry.quote;
+        item.append(quote);
+      }
+      list.append(item);
+    }
+    section.append(heading, list);
+    dom.notesBody.append(section);
+  }
+
+  if (empty) {
+    const nothing = document.createElement('p');
+    nothing.className = 'notes-empty';
+    nothing.textContent = state.t(enabled ? 'notes.empty' : 'notes.off');
+    dom.notesBody.append(nothing);
+  }
+}
+
+async function finishMeeting() {
+  dom.finishMeeting.disabled = true;
+  dom.notesStatus.textContent = state.t('notes.working');
+  try {
+    const result = await api.finishMeeting();
+    if (result.summary) addExchange(state.t('button.finish')).finish({ text: result.summary });
+    addNotice(state.t('notes.finished', { path: result.path || '—' }));
+  } catch (error) {
+    addNotice(String(error.message || error), 'error');
+  } finally {
+    dom.finishMeeting.disabled = false;
+    await refreshNotes();
+  }
 }
 
 /**
@@ -533,6 +647,10 @@ function subscribeToServer() {
     onFlag(flag) {
       addFlag(flag);
     },
+    onNotes(payload) {
+      state.notes = { ...(state.notes || {}), counts: payload.counts };
+      if (!dom.rail.hidden && state.panel === 'notes') refreshNotes();
+    },
     onSay(payload) {
       // Only the observer decides to interrupt, and only when a standing
       // instruction asked it to.
@@ -550,10 +668,22 @@ function bindControls() {
 
   dom.askNow.addEventListener('click', () => setArmed(!state.armed));
 
-  dom.settingsToggle.addEventListener('click', () => {
-    showSettings(dom.settings.hidden);
-    state.preferences.settingsOpen = !dom.settings.hidden;
-    savePreferences(state.preferences);
+  dom.settingsToggle.addEventListener('click', () => toggleRail('settings'));
+  dom.notesToggle.addEventListener('click', () => toggleRail('notes'));
+  for (const tab of dom.tabs) {
+    tab.addEventListener('click', () => {
+      state.panel = tab.dataset.panel;
+      showRail(state.panel);
+      state.preferences.rail = state.panel;
+      savePreferences(state.preferences);
+    });
+  }
+
+  dom.finishMeeting.addEventListener('click', finishMeeting);
+  dom.clearNotes.addEventListener('click', async () => {
+    await api.clearNotes();
+    addNotice(state.t('notes.cleared'));
+    await refreshNotes();
   });
 
   dom.newSession.addEventListener('click', async () => {
@@ -604,7 +734,7 @@ async function boot() {
   applySettings({ persist: false });
   bindSettings();
   bindControls();
-  showSettings(Boolean(state.preferences.settingsOpen));
+  showRail(state.preferences.rail || null);
   populateLanguages();
   populateVoices();
   subscribeToServer();

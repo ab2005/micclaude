@@ -328,6 +328,109 @@ class NotesTests(unittest.TestCase):
         self.assertIn("## Points", notes.to_markdown("kl"))
 
 
+class FinishTests(unittest.TestCase):
+    """Ending a meeting: a summary, a file, and a session left alive."""
+
+    def finish(self, reply="Обсудили тесты.", **kwargs):
+        claude = FakeClaude(json.dumps({"points": [{"text": "раз", "quote": "раз"}]}), reply)
+        obs, _, published = observer(claude=claude, min_lines=1)
+        obs.add("раз", time.time())
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = obs.finish(directory=tmp, **kwargs)
+            # Read what we need before the directory goes away.
+            files = [(path.name, path.stat().st_mode & 0o777) for path in sorted(Path(tmp).glob("*.md"))]
+        return summary, obs, claude, published, files
+
+    def test_the_buffer_is_sent_before_the_summary_is_asked_for(self):
+        _, obs, claude, _, _ = self.finish()
+        self.assertIn("<transcript>", claude.prompts[0])
+        self.assertIn("not a batch", claude.prompts[1])
+        self.assertEqual([e.text for e in obs.notes.points], ["раз"], "the last batch landed")
+
+    def test_the_summary_is_returned_and_written_next_to_the_notes(self):
+        summary, _, _, _, files = self.finish()
+        self.assertEqual(summary.text, "Обсудили тесты.")
+        self.assertIn("Обсудили тесты.", summary.document)
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0][1], 0o600, "readable by its owner only")
+        self.assertTrue(files[0][0].endswith(".md"))
+
+    def test_the_document_is_written_in_the_language_being_spoken(self):
+        summary, _, _, _, _ = self.finish(language="ru")
+        self.assertIn("## Итоги", summary.document)
+        self.assertIn("## Тезисы", summary.document)
+
+    def test_the_summary_is_published(self):
+        _, _, _, published, _ = self.finish()
+        self.assertIn("summary", [name for name, _ in published])
+
+    def test_a_failed_closing_turn_still_yields_the_notes(self):
+        class Failing(FakeClaude):
+            def ask(self, prompt):
+                self.prompts.append(prompt)
+                return ClaudeReply(text="rate limit reached", is_error=True)
+
+        obs, _, _ = observer(claude=Failing(), min_lines=1)
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = obs.finish(directory=tmp)
+        self.assertEqual(summary.text, "")
+        self.assertIsNotNone(summary.error)
+        self.assertIn("#", summary.document, "the notes are still a document")
+
+    def test_the_notes_end_but_the_conversation_does_not(self):
+        obs, _, _ = observer(claude=FakeClaude(EMPTY), min_lines=1)
+        obs.claude.session_id = "s1"
+        obs.notes.apply({"points": [{"text": "раз", "quote": "раз"}]})
+        obs.add("не отправленная строка", time.time())
+        obs.clear()
+        self.assertTrue(obs.notes.is_empty)
+        self.assertEqual(obs.pending, 0)
+        self.assertEqual(obs.claude.session_id, "s1", "the session is left alone")
+
+
+class PhantomTests(unittest.TestCase):
+    """Whisper fills silence with the subtitle credits it was trained on."""
+
+    def setUp(self):
+        from micclaude.config import TranscribeConfig
+
+        self.phrases = TranscribeConfig().drop_phrases
+
+    def dropped(self, text: str) -> bool:
+        from micclaude.transcribe import is_phantom
+
+        return is_phantom(text, self.phrases)
+
+    def test_known_ghosts_are_dropped(self):
+        for text in (
+            "Продолжение следует...",
+            "продолжение следует",
+            "Спасибо за просмотр!",
+            "Thanks for watching!",
+            "  Subtitles by the Amara.org community  ",
+        ):
+            self.assertTrue(self.dropped(text), text)
+
+    def test_real_speech_that_merely_contains_one_survives(self):
+        for text in (
+            "спасибо, я понял",
+            "Спасибо",
+            "продолжение следует за этим релизом",
+            "thank you for the review",
+        ):
+            self.assertFalse(self.dropped(text), text)
+
+    def test_nothing_at_all_is_not_a_phantom(self):
+        self.assertFalse(self.dropped(""))
+        self.assertFalse(self.dropped("   "))
+
+    def test_the_list_is_configurable(self):
+        from micclaude.transcribe import is_phantom
+
+        self.assertTrue(is_phantom("бла бла", ["Бла бла!"]))
+        self.assertFalse(is_phantom("бла бла", []))
+
+
 class ServerTests(unittest.TestCase):
     """The endpoints the page reads the notes through."""
 
