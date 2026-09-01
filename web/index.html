@@ -31,7 +31,11 @@
         <button id="ask-now" class="button" disabled data-i18n="button.ask" data-i18n-title="button.ask.title">
           Ask now
         </button>
-        <button id="settings-toggle" class="button ghost" aria-expanded="false" aria-controls="settings"
+        <button id="notes-toggle" class="button ghost" aria-expanded="false" aria-controls="rail"
+                data-i18n="button.notes">
+          Notes
+        </button>
+        <button id="settings-toggle" class="button ghost" aria-expanded="false" aria-controls="rail"
                 data-i18n="button.settings">
           Settings
         </button>
@@ -58,7 +62,28 @@
         </div>
       </section>
 
-      <aside class="settings" id="settings" hidden>
+      <aside class="rail" id="rail" hidden>
+        <div class="tabs" role="tablist">
+          <button class="tab" id="tab-notes" role="tab" data-panel="notes" data-i18n="button.notes"></button>
+          <button class="tab" id="tab-settings" role="tab" data-panel="settings" data-i18n="button.settings"></button>
+        </div>
+
+        <section class="panel" id="panel-notes" hidden>
+          <div class="notes-head">
+            <h2 id="notes-title" data-i18n="notes.title">Notes</h2>
+            <p class="note" id="notes-status"></p>
+          </div>
+          <div id="notes-body"></div>
+          <div class="notes-actions">
+            <button class="button" id="finish-meeting" data-i18n="button.finish"></button>
+            <button class="button ghost" id="clear-notes" data-i18n="button.clearNotes"></button>
+            <a class="button ghost" id="download-notes" href="/api/notes.md" download="notes.md"
+               data-i18n="button.downloadNotes"></a>
+          </div>
+          <p class="note" data-i18n="notes.note"></p>
+        </section>
+
+        <section class="panel" id="panel-settings" hidden>
         <h2 data-i18n="settings.title">Settings</h2>
 
         <fieldset>
@@ -122,6 +147,7 @@
           <button class="button ghost" id="new-session" data-i18n="button.newSession"></button>
           <p class="note" data-i18n="settings.session.note"></p>
         </fieldset>
+        </section>
       </aside>
     </main>
 

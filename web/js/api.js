@@ -48,11 +48,21 @@ export const getSettings = () => getJson('/api/settings');
 export const getTranscript = () => getJson('/api/transcript');
 export const getNotes = () => getJson('/api/notes');
 
-/** Send whatever the observer is holding right now. */
-export async function flushNotes() {
-  const response = await fetch('/api/notes/flush', { method: 'POST' });
-  return response.json();
+async function postJson(path) {
+  const response = await fetch(path, { method: 'POST' });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `${path} returned ${response.status}`);
+  return payload;
 }
+
+/** Send whatever the observer is holding right now. */
+export const flushNotes = () => postJson('/api/notes/flush');
+
+/** End the meeting and ask for a closing summary. The session stays open. */
+export const finishMeeting = () => postJson('/api/notes/finish');
+
+/** Start a fresh meeting. Clears the notes, leaves the conversation alone. */
+export const clearNotes = () => postJson('/api/notes/clear');
 
 /**
  * This page's identity, so it can ignore the echo of its own utterances

@@ -300,6 +300,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/session/reset":
             self.app.claude.reset()
             return self._json({"ok": True})
+        if path == "/api/notes/finish":
+            try:
+                summary = self.app.observer.finish(language=self.app.config.language)
+            except Exception as exc:
+                log.exception("finishing the meeting failed")
+                return self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"could not finish: {exc}")
+            return self._json(
+                {
+                    "summary": summary.text,
+                    "path": str(summary.path) if summary.path else None,
+                    "counts": self.app.observer.counts(),
+                    "error": summary.error,
+                }
+            )
+        if path == "/api/notes/clear":
+            self.app.observer.clear()
+            return self._json({"ok": True, "counts": self.app.observer.counts()})
         if path == "/api/notes/flush":
             try:
                 result = self.app.observer.flush()
