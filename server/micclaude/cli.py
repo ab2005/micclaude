@@ -46,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
     stt.add_argument("--backend", choices=["faster-whisper", "whisper.cpp", "openai", "null"])
     stt.add_argument("--model", help="whisper model, e.g. tiny.en, base.en, small.en, medium")
     stt.add_argument(
+        "--debug-audio",
+        metavar="DIR",
+        help="save every utterance as a WAV here, to hear what the model heard",
+    )
+    stt.add_argument(
         "--stt-language",
         metavar="CODE",
         help=(
@@ -125,6 +130,8 @@ def apply_overrides(config: Config, args: argparse.Namespace) -> Config:
         config.transcribe.backend = args.backend
     if args.model:
         config.transcribe.model = args.model
+    if args.debug_audio:
+        config.transcribe.debug_audio_dir = args.debug_audio
     if args.stt_language:
         config.transcribe.language = None if args.stt_language == "auto" else args.stt_language
 

@@ -59,20 +59,36 @@ class Utterance:
         return buffer.getvalue()
 
     def resample(self, rate: int) -> "Utterance":
-        """Linear resample. Fine for speech at these ratios, and dependency free."""
+        """Resample, averaging over each output sample's span when going down.
+
+        Point sampling is aliasing: dropping 48 kHz to 16 kHz by picking every
+        third sample folds everything above 8 kHz back into the speech band,
+        and sibilants land on top of the vowels as noise. Averaging is a crude
+        low-pass, but it is the difference between speech and mush.
+        """
         if rate == self.sample_rate or not self.pcm:
             return self
         samples = array.array("h")
         samples.frombytes(self.pcm)
+        if not samples:
+            return self
         ratio = self.sample_rate / rate
         count = max(1, int(len(samples) / ratio))
         out = array.array("h", bytes(2 * count))
+        if ratio <= 1:  # upsampling: interpolate
+            for i in range(count):
+                position = i * ratio
+                left = int(position)
+                right = min(left + 1, len(samples) - 1)
+                weight = position - left
+                out[i] = int(samples[left] * (1 - weight) + samples[right] * weight)
+            return Utterance(pcm=out.tobytes(), sample_rate=rate)
+
+        span = max(1, int(ratio))
         for i in range(count):
-            position = i * ratio
-            left = int(position)
-            right = min(left + 1, len(samples) - 1)
-            weight = position - left
-            out[i] = int(samples[left] * (1 - weight) + samples[right] * weight)
+            start = int(i * ratio)
+            stop = min(start + span, len(samples))
+            out[i] = int(sum(samples[start:stop]) / (stop - start))
         return Utterance(pcm=out.tobytes(), sample_rate=rate)
 
 
@@ -139,6 +155,8 @@ class FasterWhisperTranscriber:
     def __init__(self, config: TranscribeConfig) -> None:
         self.config = config
         self._model = None
+        self._previous = ""
+        """The last thing heard, fed back as context for the next phrase."""
 
     def load(self) -> None:
         """Load the model up front, so the first question is not slow."""
@@ -159,23 +177,51 @@ class FasterWhisperTranscriber:
             self.config.model, device=device, compute_type=self.config.compute_type
         )
 
+    def prompt_for(self, previous: str) -> str | None:
+        """What to bias this phrase with: the configured hint, then context.
+
+        A fragment of a few seconds is much easier to get right when the model
+        knows what came just before. condition_on_previous_text does this too,
+        and unboundedly -- one bad guess then feeds the next. This is capped
+        and thrown away as soon as it stops helping.
+        """
+        parts = [self.config.initial_prompt or ""]
+        words = previous.split()
+        if self.config.context_words and words:
+            parts.append(" ".join(words[-self.config.context_words :]))
+        prompt = " ".join(part for part in parts if part).strip()
+        return prompt or None
+
     def transcribe(self, utterance: Utterance) -> str:
         self.load()
         import numpy as np  # type: ignore
 
+        save_debug_audio(utterance, self.config.debug_audio_dir)
         audio = np.frombuffer(utterance.pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        prompt = self.prompt_for(self._previous)
         segments, _info = self._model.transcribe(  # type: ignore[union-attr]
             audio,
             language=self.config.language,
             beam_size=self.config.beam_size,
-            initial_prompt=self.config.initial_prompt,
+            initial_prompt=prompt,
             condition_on_previous_text=self.config.condition_on_previous_text,
-            vad_filter=False,
+            temperature=self.config.temperature,
+            vad_filter=self.config.vad_filter,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
+        return self._clean(text, prompt)
+
+    def _clean(self, text: str, prompt: str | None) -> str:
+        """Drop what is not speech, and remember what is."""
         if is_phantom(text, self.config.drop_phrases):
             log.info("dropping a phantom phrase from silence: %r", text)
             return ""
+        if is_prompt_echo(text, prompt) or is_prompt_echo(text, self.config.initial_prompt):
+            log.info("dropping our own prompt handed back as speech: %r", text)
+            self._previous = ""  # the context is not helping; start over
+            return ""
+        if text:
+            self._previous = text
         return text
 
 
@@ -297,6 +343,7 @@ class WhisperCppTranscriber:
 
     def transcribe(self, utterance: Utterance) -> str:
         self.load()
+        save_debug_audio(utterance, self.config.debug_audio_dir)
         fields = {"response_format": "json", "temperature": "0"}
         if self.config.language:
             fields["language"] = self.config.language
@@ -319,6 +366,9 @@ class WhisperCppTranscriber:
         text = str(payload.get("text") or "").strip()
         if is_phantom(text, self.config.drop_phrases):
             log.info("dropping a phantom phrase from silence: %r", text)
+            return ""
+        if is_prompt_echo(text, self.config.initial_prompt):
+            log.info("dropping our own prompt handed back as speech: %r", text)
             return ""
         return text
 
@@ -391,6 +441,45 @@ def is_phantom(text: str, phrases: Sequence[str]) -> bool:
     if not cleaned:
         return False
     return any(cleaned == re.sub(r"\s+", " ", phrase.strip().lower()).strip(" .!?,-—…") for phrase in phrases)
+
+
+def save_debug_audio(utterance: Utterance, directory: str | None) -> Path | None:
+    """Keep the audio of one utterance, so a person can hear what the model heard.
+
+    Off unless asked for -- it is the one thing here that stores sound. When
+    recognition is bad this is the only way to tell a bad room from a bad
+    model: play the file, and if you cannot understand it either, the fix is
+    not in software.
+    """
+    if not directory:
+        return None
+    target = Path(directory).expanduser()
+    try:
+        target.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = target / f"{time.strftime('%H%M%S')}-{int(utterance.duration_ms)}ms.wav"
+        path.write_bytes(utterance.to_wav())
+        path.chmod(0o600)
+    except OSError as exc:  # pragma: no cover - disk trouble
+        log.warning("cannot save debug audio: %s", exc)
+        return None
+    return path
+
+
+def is_prompt_echo(text: str, prompt: str | None) -> bool:
+    """Did Whisper hand our own initial_prompt back as the transcript?
+
+    Given a biasing prompt and audio it cannot make sense of, Whisper will
+    happily return the prompt. It looks like speech, it is not, and no list of
+    known phantoms can catch it -- but comparing against what we sent can.
+    """
+    if not prompt:
+        return False
+    cleaned = _flatten(text)
+    return bool(cleaned) and cleaned == _flatten(prompt)
+
+
+def _flatten(text: str) -> str:
+    return re.sub(r"[^\w\s]", "", re.sub(r"\s+", " ", (text or "").strip().lower())).strip()
 
 
 def _has_cuda() -> bool:

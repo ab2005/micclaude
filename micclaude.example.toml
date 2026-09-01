@@ -42,6 +42,9 @@ backend = "faster-whisper"   # "whisper.cpp" | "openai" | "null"
 model = "base.en"            # tiny.en | base.en | small.en | medium | large-v3
 compute_type = "int8"        # int8 on CPU, float16 on a GPU
 language = "en"              # Whisper code, or omit to detect it per phrase
+beam_size = 5                # 1 is greedy and faster and noticeably worse
+context_words = 24           # words of the previous phrase given as context
+# debug_audio_dir = "~/.micclaude/heard"   # keep the audio, to hear what it heard
 # Biasing the decoder toward the wake word makes it far more reliable.
 initial_prompt = "The speaker addresses an assistant named Claude."
 
@@ -54,8 +57,16 @@ initial_prompt = "The speaker addresses an assistant named Claude."
 # Capture settings the browser uses. The settings panel changes them live;
 # these are the defaults it starts from.
 energy_threshold = 0.015   # RMS above which a frame counts as speech
-silence_ms = 700           # pause that ends a phrase
+silence_ms = 700           # pause that ends a phrase; raise it if you get cut off
 max_utterance_ms = 30000
+
+# The browser's own audio processing. Echo cancellation earns its keep -- it
+# stops the page transcribing its own spoken replies. The other two are tuned
+# to keep a human intelligible on a phone call, and they take the consonants
+# with the noise; a speech model would rather have the hiss.
+echo_cancellation = true
+noise_suppression = false
+auto_gain = false          # true only if your microphone is genuinely quiet
 
 [trigger]
 # The language preset fills these in; override to rename the assistant.

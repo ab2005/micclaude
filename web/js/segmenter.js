@@ -18,6 +18,9 @@ export const DEFAULT_AUDIO = Object.freeze({
   preroll_ms: 300,
   min_utterance_ms: 350,
   max_utterance_ms: 30000,
+  echo_cancellation: true,
+  noise_suppression: false,
+  auto_gain: false,
 });
 
 /** Root-mean-square level of a float frame, already in 0..1. */

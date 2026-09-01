@@ -20,17 +20,30 @@ export class Resampler {
     this.previous = 0;
   }
 
-  /** Resample one chunk. Returns a Float32Array at the target rate. */
+  /**
+   * Resample one chunk. Returns a Float32Array at the target rate.
+   *
+   * Downsampling averages over the whole span each output sample covers,
+   * rather than picking one point out of it. Point sampling is aliasing: at
+   * 48k to 16k everything above 8 kHz folds back into the speech band, and
+   * sibilants -- of which Russian has plenty -- turn into noise sitting on
+   * top of the vowels. The average is a crude low-pass, but it is the
+   * difference between recognizable speech and mush.
+   */
   process(chunk) {
     if (this.fromRate === this.toRate) return chunk;
     const out = [];
-    // Index -1 refers to the last sample of the previous chunk.
+    const span = Math.max(1, Math.floor(this.ratio));
     for (; this.position < chunk.length; this.position += this.ratio) {
-      const left = Math.floor(this.position);
-      const weight = this.position - left;
-      const a = left < 0 ? this.previous : chunk[left];
-      const b = left + 1 < chunk.length ? chunk[left + 1] : chunk[chunk.length - 1];
-      out.push(a * (1 - weight) + b * weight);
+      const start = Math.floor(this.position);
+      let total = 0;
+      let counted = 0;
+      for (let i = start; i < start + span; i += 1) {
+        const sample = i < 0 ? this.previous : chunk[Math.min(i, chunk.length - 1)];
+        total += sample;
+        counted += 1;
+      }
+      out.push(total / counted);
     }
     this.position -= chunk.length;
     this.previous = chunk[chunk.length - 1] ?? this.previous;

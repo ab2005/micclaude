@@ -69,6 +69,116 @@ class WavTests(unittest.TestCase):
         self.assertAlmostEqual(rms(b"\x00" * 100), 0.0)
 
 
+class ResampleTests(unittest.TestCase):
+    """Downsampling must filter, not point-sample."""
+
+    def tone(self, hz: int, rate: int, seconds: float = 0.2):
+        import array
+        import math
+
+        count = int(rate * seconds)
+        samples = array.array(
+            "h", [int(20000 * math.sin(2 * math.pi * hz * i / rate)) for i in range(count)]
+        )
+        return Utterance(pcm=samples.tobytes(), sample_rate=rate)
+
+    def level(self, utterance: Utterance) -> float:
+        return rms(utterance.pcm)
+
+    def test_a_tone_above_the_new_nyquist_does_not_survive(self):
+        """Point sampling would fold 12 kHz down into the speech band."""
+        out = self.tone(12000, 48000).resample(16000)
+        self.assertLess(self.level(out), 0.15, "aliasing is what makes Russian sibilants mush")
+
+    def test_speech_band_content_comes_through(self):
+        out = self.tone(300, 48000).resample(16000)
+        self.assertGreater(self.level(out), 0.4)
+
+    def test_the_duration_is_preserved(self):
+        out = self.tone(300, 48000, seconds=0.5).resample(16000)
+        self.assertAlmostEqual(out.duration_ms, 500, delta=5)
+
+    def test_upsampling_still_interpolates(self):
+        out = self.tone(300, 8000).resample(16000)
+        self.assertAlmostEqual(out.duration_ms, 200, delta=5)
+        self.assertGreater(self.level(out), 0.4)
+
+
+class PromptEchoTests(unittest.TestCase):
+    """Whisper hands the biasing prompt back when it cannot hear anything."""
+
+    PROMPT = "Говорящий обращается к ассистенту по имени Клавдий."
+
+    def test_the_prompt_returned_verbatim_is_dropped(self):
+        from micclaude.transcribe import is_prompt_echo
+
+        for text in (self.PROMPT, self.PROMPT.lower(), self.PROMPT.rstrip(".") + "  "):
+            self.assertTrue(is_prompt_echo(text, self.PROMPT), text)
+
+    def test_real_speech_is_not_dropped(self):
+        from micclaude.transcribe import is_prompt_echo
+
+        for text in ("Клавдий, что это?", "Говорящий обращается", "по имени Клавдий"):
+            self.assertFalse(is_prompt_echo(text, self.PROMPT), text)
+
+    def test_no_prompt_means_nothing_to_echo(self):
+        from micclaude.transcribe import is_prompt_echo
+
+        self.assertFalse(is_prompt_echo("что угодно", None))
+        self.assertFalse(is_prompt_echo("", self.PROMPT))
+
+
+class ContextPromptTests(unittest.TestCase):
+    def transcriber(self, **kwargs):
+        return FasterWhisperTranscriber(TranscribeConfig(**kwargs))
+
+    def test_the_previous_phrase_is_offered_as_context(self):
+        prompt = self.transcriber(initial_prompt="Имя: Клавдий.", context_words=3).prompt_for(
+            "раз два три четыре пять"
+        )
+        self.assertEqual(prompt, "Имя: Клавдий. три четыре пять")
+
+    def test_context_can_be_turned_off(self):
+        prompt = self.transcriber(initial_prompt="Имя: Клавдий.", context_words=0).prompt_for("раз")
+        self.assertEqual(prompt, "Имя: Клавдий.")
+
+    def test_with_neither_there_is_no_prompt(self):
+        self.assertIsNone(self.transcriber(initial_prompt=None, context_words=0).prompt_for(""))
+
+    def test_an_echo_clears_the_context_rather_than_feeding_it_back(self):
+        transcriber = self.transcriber(initial_prompt="Имя: Клавдий.")
+        transcriber._previous = "что-то настоящее"
+        self.assertEqual(transcriber._clean("Имя: Клавдий.", "Имя: Клавдий."), "")
+        self.assertEqual(transcriber._previous, "", "a prompt that echoes is not context")
+
+    def test_real_speech_becomes_the_next_context(self):
+        transcriber = self.transcriber()
+        self.assertEqual(transcriber._clean("тесты падают", None), "тесты падают")
+        self.assertEqual(transcriber._previous, "тесты падают")
+
+
+class DebugAudioTests(unittest.TestCase):
+    def test_nothing_is_written_unless_asked(self):
+        from micclaude.transcribe import save_debug_audio
+
+        self.assertIsNone(save_debug_audio(tone(0.2), None))
+
+    def test_the_utterance_is_saved_for_a_person_to_listen_to(self):
+        import tempfile
+        import wave
+        from pathlib import Path
+
+        from micclaude.transcribe import save_debug_audio
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = save_debug_audio(tone(0.3), str(Path(tmp) / "audio"))
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with wave.open(str(path)) as handle:
+                self.assertEqual(handle.getframerate(), 16000)
+                self.assertAlmostEqual(handle.getnframes() / 16000, 0.3, delta=0.01)
+
+
 class BackendTests(unittest.TestCase):
     def test_factory(self):
         self.assertIsInstance(build_transcriber(TranscribeConfig()), FasterWhisperTranscriber)

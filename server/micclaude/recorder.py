@@ -190,6 +190,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lang", choices=sorted(PRESETS), help="spoken language preset")
     parser.add_argument("--model", help="whisper model, e.g. tiny.en, base.en, small")
     parser.add_argument("--backend", choices=["faster-whisper", "whisper.cpp", "openai", "null"])
+    parser.add_argument(
+        "--debug-audio", metavar="DIR", help="save every utterance as a WAV here"
+    )
     parser.add_argument("--device", help="input device index or name substring")
     parser.add_argument("--list-devices", action="store_true", help="list input devices and exit")
     parser.add_argument("--source", default="recorder", help="name this recorder in the transcript")
@@ -217,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
             config.transcribe.backend = args.backend
         if args.model:
             config.transcribe.model = args.model
+        if args.debug_audio:
+            config.transcribe.debug_audio_dir = args.debug_audio
         config.validate()
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)

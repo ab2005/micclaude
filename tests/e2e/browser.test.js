@@ -198,6 +198,10 @@ if (chromium) {
     await t.test('it starts empty and says so', async () => {
       await page.click('#notes-toggle');
       await page.waitForSelector('#panel-notes:visible');
+      // The panel shows before its fetch resolves; wait for the content.
+      await page.waitForFunction(
+        () => document.querySelector('#notes-body').textContent.trim().length > 0,
+      );
       assert.match(await page.textContent('#notes-body'), /Nothing yet/);
       assert.equal(await page.getAttribute('#tab-notes', 'aria-selected'), 'true');
     });
@@ -238,7 +242,11 @@ if (chromium) {
     await t.test('a new meeting clears the notes', async () => {
       await page.click('#clear-notes');
       await page.waitForFunction(
-        () => document.querySelectorAll('#notes-body .notes-section').length === 0,
+        () => {
+          const body = document.querySelector('#notes-body');
+          return body.querySelectorAll('.notes-section').length === 0
+            && body.textContent.trim().length > 0;
+        },
         null,
         { timeout: 10000 },
       );
