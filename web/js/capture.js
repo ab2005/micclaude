@@ -37,17 +37,37 @@ export class Capture {
 
   async start(deviceId) {
     if (this.running) return;
+    // Echo cancellation earns its place: without it the page transcribes its
+    // own spoken replies. Noise suppression and automatic gain do not -- they
+    // are tuned to keep a human on a phone call intelligible, and they take
+    // the consonants with the noise. A speech model would rather have the hiss.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: this.audio.echo_cancellation !== false,
+        noiseSuppression: this.audio.noise_suppression === true,
+        autoGainControl: this.audio.auto_gain === true,
         ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       },
     });
-    this.context = new AudioContext();
+    // Ask the browser for the rate we want. Its own resampler is properly
+    // filtered; ours is not, and downsampling 48k to 16k without a low-pass
+    // folds every sibilant back into the speech band as noise. Whisper hears
+    // mush. Not every browser honours the request, so we check and only fall
+    // back to our own when it did not.
+    try {
+      this.context = new AudioContext({ sampleRate: this.audio.sample_rate });
+    } catch {
+      this.context = new AudioContext();
+    }
     await this.context.resume();
+    this.resampled = this.context.sampleRate !== this.audio.sample_rate;
+    if (this.resampled) {
+      console.warn(
+        `the browser gave ${this.context.sampleRate} Hz, not ${this.audio.sample_rate}; ` +
+        'resampling in the page, which costs some accuracy',
+      );
+    }
     this.resampler = new Resampler(this.context.sampleRate, this.audio.sample_rate);
     const source = this.context.createMediaStreamSource(this.stream);
 

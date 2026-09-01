@@ -301,6 +301,32 @@ server_url = "http://127.0.0.1:8181"
 `model` takes either a name (`small`, looked up in `model_dir`) or a path to a
 `.bin`. `server_args` passes extra flags through, e.g. `["-t", "4"]`.
 
+## When recognition is bad
+
+In order, cheapest first.
+
+**Listen to what the model heard.** `--debug-audio ~/heard` keeps every
+utterance as a WAV. Play them. If you cannot understand the recording either,
+no amount of model tuning will help and the fix is the microphone or the room.
+It is the one thing here that stores audio, so it is off unless asked for.
+
+**Use a bigger model.** `small` is the floor for Russian, `medium` is markedly
+better, and on a Mac `--backend whisper.cpp` makes `medium` affordable.
+
+**Give it longer phrases.** Raise "End of phrase" to 1000-1200 ms. A model
+guessing at a two-second fragment has little to go on; the previous phrase is
+already passed in as context (`context_words`), which helps for the same
+reason.
+
+**Leave the browser's noise suppression off.** It is on by default in
+getUserMedia and it takes consonants with the noise — measurably: the same
+recording went from "a made-a-base container" to "the database container" with
+it off. Echo cancellation stays on, since without it the page transcribes its
+own replies.
+
+**Name your terms.** `transcribe.initial_prompt` biases the decoder — put your
+colleagues' names and the words you say constantly in it.
+
 ## Accuracy notes
 
 Whisper spells names inconsistently, so `cloud`, `claud`, `clawed` and `clod`
@@ -363,7 +389,7 @@ text and small, but they are yours to delete.
 ## Tests
 
 ```bash
-make test          # 276 unit tests: Python + JavaScript, no deps
+make test          # 295 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

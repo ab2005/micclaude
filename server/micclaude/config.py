@@ -44,6 +44,18 @@ class AudioConfig:
     min_utterance_ms: int = 350
     max_utterance_ms: int = 30000
 
+    echo_cancellation: bool = True
+    """Keeps the assistant from hearing its own spoken replies. Worth its cost."""
+
+    noise_suppression: bool = False
+    """The browser's suppressor is tuned for telephony intelligibility, not for
+    a speech model, and it takes the consonants with the noise. Off by default:
+    Whisper would rather have the hiss."""
+
+    auto_gain: bool = False
+    """Likewise: automatic gain pumps between phrases and smears quiet
+    consonants. Turn it on only if your microphone is genuinely too quiet."""
+
 
 @dataclass
 class TranscribeConfig:
@@ -56,14 +68,36 @@ class TranscribeConfig:
     device: str = "auto"
     compute_type: str = "int8"
     language: str | None = "en"
-    beam_size: int = 1
+
+    beam_size: int = 5
+    """Greedy decoding (1) is fastest and noticeably worse. On phrase-sized
+    audio the extra cost is small, so accuracy wins by default."""
+
+    context_words: int = 24
+    """Words of the previous phrase fed in as context. Whisper transcribes a
+    short fragment much better when it knows what came just before, and
+    unlike condition_on_previous_text this is bounded and under our control."""
+
+    temperature: float = 0.0
+    """0 is deterministic. faster-whisper falls back to higher values by
+    itself when a decode looks degenerate."""
+
+    vad_filter: bool = False
+    """We segment on our own, but letting Whisper trim the edges too can help
+    a noisy room. Costs a little latency."""
     initial_prompt: str | None = "The speaker addresses an assistant named Claude."
     """Biasing text; naming the wake word here helps Whisper spell it right."""
 
     condition_on_previous_text: bool = False
     """Whisper's default is to feed each chunk its own previous output, which
-    makes one bad guess snowball into a repeating loop. We transcribe whole
-    phrases anyway, so there is little to lose and a runaway to avoid."""
+    makes one bad guess snowball into a repeating loop. We pass the previous
+    phrase through initial_prompt instead: same benefit, bounded, and it
+    cannot run away."""
+
+    debug_audio_dir: str | None = None
+    """Save every utterance as a WAV beside its text. Off by default -- it
+    stores audio, which nothing else here does -- but it is the only way to
+    tell bad recording from bad recognition."""
 
     drop_phrases: list[str] = field(
         default_factory=lambda: [

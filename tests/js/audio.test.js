@@ -136,6 +136,32 @@ test('resampling 48 kHz to 16 kHz keeps duration and continuity', () => {
   assert.equal(total, 1600); // 100 ms at 16 kHz
 });
 
+test('downsampling filters instead of point-sampling', () => {
+  // A tone above the target Nyquist frequency. Point sampling would alias it
+  // down into the speech band as a loud phantom; averaging must not.
+  const from = 48000;
+  const to = 16000;
+  const input = new Float32Array(from / 10);
+  for (let i = 0; i < input.length; i += 1) {
+    input[i] = Math.sin((2 * Math.PI * 12000 * i) / from); // 12 kHz, above 8 kHz
+  }
+  const out = new Resampler(from, to).process(input);
+  const level = Math.sqrt(out.reduce((total, v) => total + v * v, 0) / out.length);
+  assert.ok(level < 0.25, `a 12 kHz tone must not survive as ${level.toFixed(2)} in the 16 kHz band`);
+});
+
+test('downsampling keeps speech-band content', () => {
+  const from = 48000;
+  const to = 16000;
+  const input = new Float32Array(from / 10);
+  for (let i = 0; i < input.length; i += 1) {
+    input[i] = Math.sin((2 * Math.PI * 300 * i) / from); // 300 Hz, well inside the band
+  }
+  const out = new Resampler(from, to).process(input);
+  const level = Math.sqrt(out.reduce((total, v) => total + v * v, 0) / out.length);
+  assert.ok(level > 0.5, `a 300 Hz tone must come through, got ${level.toFixed(2)}`);
+});
+
 test('resampling is a no-op at matching rates', () => {
   const chunk = Float32Array.from([0.1, 0.2]);
   assert.equal(new Resampler(16000, 16000).process(chunk), chunk);
