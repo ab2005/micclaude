@@ -1,7 +1,10 @@
-.PHONY: run test test-py test-js test-e2e
+.PHONY: run record test test-py test-js test-e2e
 
 run:  ## Serve the app on http://localhost:8765
 	PYTHONPATH=server python3 -m micclaude
+
+record:  ## Listen on a microphone and post the text to a running server
+	PYTHONPATH=server python3 -m micclaude.recorder
 
 test: test-py test-js  ## Unit tests, no microphone or API key needed
 
