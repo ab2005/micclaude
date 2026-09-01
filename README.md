@@ -118,6 +118,35 @@ Note that the `.en` models cannot transcribe anything but English. Asking for
 one with another language is refused at startup rather than silently producing
 nonsense.
 
+## Feeding it text from somewhere else
+
+The browser is not the only possible source of speech. Anything that can post
+JSON can put a line into the transcript:
+
+```bash
+curl -s localhost:8765/api/utterance \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "the migration failed at step three", "source": "recorder"}'
+```
+
+The line is written to the transcript, pushed to every open page over
+`GET /api/events`, and evaluated for the wake word exactly like speech from the
+page's own microphone — so `{"text": "hey claude, what broke?"}` gets answered.
+
+This is the seam a separate recorder runs along: a process that owns the
+microphone, transcribes locally, and posts text, while the browser becomes a
+viewer that needs no microphone permission of its own. The `source` field is
+carried through to the transcript row, so a setup with two inputs can tell one
+speaker from the other.
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /api/utterance` | Take one recognized line: `{text, time?, source?}` |
+| `GET /api/events` | Server-sent events: every line, whoever recognized it |
+| `GET /api/transcript` | The recent transcript, for a page that just opened |
+| `POST /api/transcribe` | 16-bit WAV in, text out (what the page itself uses) |
+| `POST /api/ask` | A question in, the streamed reply out |
+
 ## Giving Claude your project
 
 By default Claude runs in the directory you started the server from. Point it
@@ -219,7 +248,7 @@ text and small, but they are yours to delete.
 ## Tests
 
 ```bash
-make test          # 167 unit tests: Python + JavaScript, no deps
+make test          # 183 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

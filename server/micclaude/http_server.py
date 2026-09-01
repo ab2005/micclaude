@@ -7,6 +7,7 @@ relays questions to the Claude Code CLI.
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import mimetypes
@@ -22,6 +23,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import urlparse
 
 from . import __version__
+from .broadcast import Broadcaster
 from .claude_client import ClaudeClient, ClaudeNotFound, ClaudeReply, Delta, format_prompt
 from .config import Config
 from .transcribe import Transcriber, TranscriptionError, build_transcriber, decode_wav
@@ -52,9 +54,24 @@ def find_web_root() -> Path:
 class TranscriptEntry:
     timestamp: float
     text: str
+    id: int = 0
+    source: str = "browser"
+    """Where the text came from: the page's own microphone, or a recorder."""
+
+    client: str | None = None
+    """Opaque id of whoever posted it, so a page can ignore its own echo."""
 
     def format(self) -> str:
         return f"[{time.strftime('%H:%M:%S', time.localtime(self.timestamp))}] {self.text}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "time": self.timestamp,
+            "text": self.text,
+            "source": self.source,
+            "client": self.client,
+        }
 
 
 class App:
@@ -73,6 +90,8 @@ class App:
         self.claude = claude or ClaudeClient(config.claude)
         self.web_root = (web_root or find_web_root()).resolve()
         self.transcript: list[TranscriptEntry] = []
+        self.events = Broadcaster()
+        self._ids = itertools.count(1)
         self._transcribe_lock = threading.Lock()
         self._transcript_lock = threading.Lock()
         self.writer = TranscriptWriter(config.transcript_dir, config.transcript_file)
@@ -86,13 +105,33 @@ class App:
             text = self.transcriber.transcribe(utterance)
         return text.strip(), utterance.duration_ms
 
-    def record(self, text: str) -> TranscriptEntry:
-        entry = TranscriptEntry(timestamp=time.time(), text=text)
+    def record(
+        self,
+        text: str,
+        *,
+        source: str = "browser",
+        client: str | None = None,
+        timestamp: float | None = None,
+    ) -> TranscriptEntry:
+        """Store one recognized utterance and tell every open page about it."""
+        entry = TranscriptEntry(
+            timestamp=timestamp if timestamp is not None else time.time(),
+            text=text,
+            id=next(self._ids),
+            source=source,
+            client=client,
+        )
         with self._transcript_lock:
             self.transcript.append(entry)
             del self.transcript[:-500]
             self.writer.write(entry.timestamp, text)
+        self.events.publish("utterance", entry.to_dict())
         return entry
+
+    def recent(self, limit: int = 100) -> list[TranscriptEntry]:
+        """The last entries, so a page that just opened can catch up."""
+        with self._transcript_lock:
+            return self.transcript[-limit:]
 
     def context_lines(self, supplied: list[str] | None = None) -> list[str]:
         """Recent transcript lines to send with a question.
@@ -198,6 +237,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.app.health())
         if path == "/api/settings":
             return self._json(self.app.client_settings())
+        if path == "/api/events":
+            return self._events()
+        if path == "/api/transcript":
+            return self._json({"entries": [e.to_dict() for e in self.app.recent()]})
         if path.startswith("/api/"):
             return self._error(HTTPStatus.NOT_FOUND, f"no such endpoint: {path}")
         return self._serve_static(path)
@@ -216,6 +259,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/transcribe":
             return self._transcribe(body)
+        if path == "/api/utterance":
+            return self._utterance(body)
         if path == "/api/ask":
             return self._ask(body)
         if path == "/api/session/reset":
@@ -247,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("transcription failed")
             return self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"transcription failed: {exc}")
         if text:
-            self.app.record(text)
+            self.app.record(text, source="browser", client=self.headers.get("X-Client-Id"))
         self._json(
             {
                 "text": text,
@@ -255,6 +300,31 @@ class Handler(BaseHTTPRequestHandler):
                 "elapsedMs": round((time.monotonic() - started) * 1000),
             }
         )
+
+    def _utterance(self, body: bytes) -> None:
+        """Text recognized somewhere else -- a recorder process, or a script."""
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError:
+            return self._error(HTTPStatus.BAD_REQUEST, "expected a JSON body")
+        if not isinstance(payload, dict):
+            return self._error(HTTPStatus.BAD_REQUEST, "expected a JSON object")
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            return self._error(HTTPStatus.BAD_REQUEST, "'text' is required")
+        timestamp = payload.get("time")
+        entry = self.app.record(
+            text,
+            source=str(payload.get("source") or "recorder"),
+            client=self.headers.get("X-Client-Id"),
+            timestamp=float(timestamp) if isinstance(timestamp, (int, float)) else None,
+        )
+        self._json(entry.to_dict(), HTTPStatus.CREATED)
+
+    def _events(self) -> None:
+        """Server-sent events: everything recognized, whoever recognized it."""
+        with self.app.events.subscribe() as subscription:
+            self._stream_sse(subscription.events())
 
     def _ask(self, body: bytes) -> None:
         try:
@@ -287,20 +357,29 @@ class Handler(BaseHTTPRequestHandler):
             log.exception("claude call failed")
             yield "error", {"text": f"claude call failed: {exc}"}
 
-    def _stream_sse(self, events: Iterator[tuple[str, dict[str, Any]]]) -> None:
+    def _stream_sse(self, events: Iterator[tuple[str, dict[str, Any]] | None]) -> None:
+        """Write an event stream until it ends or the client goes away.
+
+        A ``None`` from the iterator is a keepalive: an SSE comment, which the
+        browser ignores but a dead connection cannot swallow.
+        """
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
         self.end_headers()
         self.close_connection = True
-        for name, data in events:
-            chunk = f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+        for event in events:
+            if event is None:
+                chunk = b": keepalive\n\n"
+            else:
+                name, data = event
+                chunk = f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
             try:
                 self.wfile.write(chunk)
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
-                log.info("client disconnected mid-answer")
+                log.info("client disconnected")
                 return
 
 
@@ -346,6 +425,7 @@ def serve(
     except KeyboardInterrupt:
         pass
     finally:
+        app.events.close()
         server.shutdown()
         server.server_close()
     return 0

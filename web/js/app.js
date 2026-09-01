@@ -88,10 +88,11 @@ function record(text) {
   if (state.transcript.length > 200) state.transcript.shift();
 }
 
-function addHeard(text) {
+function addHeard(text, source = 'mic') {
   dom.empty?.remove();
   const row = document.createElement('div');
   row.className = 'heard';
+  if (source !== 'mic') row.dataset.source = source;
   const stamp = document.createElement('time');
   const now = new Date();
   stamp.dateTime = now.toISOString();
@@ -168,15 +169,18 @@ function contextLines() {
 /**
  * Route one utterance.
  *
- * `source` is 'mic' for speech, which is echoed into the transcript, or
- * 'typed' for the compose box, where the question card already shows the text.
+ * `source` says where it came from: 'mic' for this page's own microphone,
+ * 'typed' for the compose box (where the question card already shows the
+ * text, so the transcript keeps it without a row), or the name a recorder
+ * gave itself. That name is carried through to the row, so a setup with two
+ * inputs can tell "you" from "the other end".
  */
 async function handleText(text, { forceAsk = false, source = 'mic' } = {}) {
   const clean = (text || '').trim();
   if (!clean) return;
 
-  if (source === 'mic') addHeard(clean);
-  else record(clean);
+  if (source === 'typed') record(clean);
+  else addHeard(clean, source);
 
   if (forceAsk) return ask(clean);
 
@@ -490,6 +494,23 @@ function showSettings(open) {
   dom.settingsToggle.setAttribute('aria-expanded', String(open));
 }
 
+/**
+ * Listen to the server's event stream.
+ *
+ * Speech recognized by a separate recorder arrives here, so the page shows the
+ * whole conversation even when it is not the one holding the microphone. Our
+ * own utterances come back too -- those are already on screen, so they are
+ * skipped by client id.
+ */
+function subscribeToServer() {
+  api.subscribe({
+    onUtterance(entry) {
+      if (entry.client === api.clientId) return;
+      handleText(entry.text, { source: entry.source || 'recorder' });
+    },
+  });
+}
+
 function bindControls() {
   dom.listen.addEventListener('click', () =>
     (state.listening ? stopListening() : startListening()));
@@ -553,6 +574,7 @@ async function boot() {
   showSettings(Boolean(state.preferences.settingsOpen));
   populateLanguages();
   populateVoices();
+  subscribeToServer();
   await populateDevices();
 
   try {
