@@ -22,7 +22,21 @@ port = 8765
 open_browser = true
 
 [transcribe]
-backend = "faster-whisper"   # or "openai"
+backend = "faster-whisper"   # "whisper.cpp" | "openai" | "null"
+
+# whisper.cpp is the fast path on Apple silicon: it uses Metal, which
+# faster-whisper does not. Install the server and a model, then:
+#
+#   brew install whisper-cpp
+#   mkdir -p ~/.cache/whisper.cpp && curl -L -o ~/.cache/whisper.cpp/ggml-small.bin \
+#     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+#
+# backend = "whisper.cpp"
+# model = "small"                     # a name here, or a path to a .bin
+# model_dir = "~/.cache/whisper.cpp"
+# server_url = "http://127.0.0.1:8181"
+# autostart = true                    # false to point at a server you run
+# server_args = ["-t", "4"]           # extra whisper-server flags
 # The .en models are English-only. For any other language use a multilingual
 # one: base | small | medium | large-v3. The preset for ru picks small.
 model = "base.en"            # tiny.en | base.en | small.en | medium | large-v3

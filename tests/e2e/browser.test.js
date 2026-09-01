@@ -306,6 +306,30 @@ if (chromium) {
       assert.equal(await page.inputValue('#wake'), 'клавдий', 'the wake word is not translated');
     });
 
+    await t.test('the clock follows the page language, not the browser', async () => {
+      const say = (text) => fetch(new URL('/api/utterance', url), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const lastStamp = () => page.$$eval('.heard time', (nodes) => nodes.at(-1).textContent);
+      const stamps = async () => (await page.$$eval('.heard time', (n) => n.length));
+
+      // The previous subtest left the interface in English, where a 12-hour
+      // clock is right.
+      const before = await stamps();
+      await say('a clock check');
+      await page.waitForFunction((n) => document.querySelectorAll('.heard time').length > n, before);
+      assert.match(await lastStamp(), /(AM|PM)$/, 'English keeps the 12-hour clock');
+
+      // Russian does not use one, whatever the browser locale says.
+      await page.selectOption('#ui-language', 'ru');
+      const middle = await stamps();
+      await say('проверка часов');
+      await page.waitForFunction((n) => document.querySelectorAll('.heard time').length > n, middle);
+      assert.match(await lastStamp(), /^\d{2}:\d{2}:\d{2}$/, 'Russian gets a 24-hour clock');
+    });
+
     assert.deepEqual(errors, [], 'no uncaught page errors');
   });
 }

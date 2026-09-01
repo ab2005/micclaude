@@ -109,7 +109,13 @@ function addHeard(text, source = 'mic') {
   const stamp = document.createElement('time');
   const now = new Date();
   stamp.dateTime = now.toISOString();
-  stamp.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  // The page's language, not the browser's: a Russian interface showing
+  // "01:01:07 AM" is the browser's locale leaking through.
+  stamp.textContent = now.toLocaleTimeString(state.language, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
   const body = document.createElement('span');
   body.textContent = text;
   row.append(stamp, body);
@@ -198,7 +204,7 @@ function contextLines() {
   if (!count) return [];
   return state.transcript
     .slice(-count - 1, -1)
-    .map(({ time, text }) => `[${time.toLocaleTimeString([], { hour12: false })}] ${text}`);
+    .map(({ time, text }) => `[${time.toLocaleTimeString(state.language, { hour12: false })}] ${text}`);
 }
 
 /**

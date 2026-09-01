@@ -12,6 +12,16 @@
 
 ```bash
 git clone https://github.com/ab2005/micclaude && cd micclaude
+./start.sh ru              # русский, локальный Whisper
+./start.sh ru whisper.cpp  # русский на Metal (сначала brew install whisper-cpp)
+```
+
+`start.sh` сам создаст `.venv`, доставит недостающее, скачает модель при первом
+запуске и поднимет сервер. Всё установленное остаётся в `.venv` рядом.
+
+Если хочется вручную:
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -198,6 +208,38 @@ micclaude-recorder --lang ru --source комната      # микрофон
 Имя источника (`--source`) доходит до строки в ленте — при двух входах по нему
 можно различать говорящих, не прибегая ни к какой модели.
 
+## Быстрое распознавание на Mac
+
+`faster-whisper` работает через CTranslate2, а тот на Apple silicon Metal не
+использует — считает только процессором. whisper.cpp Metal использует, и на
+пассивно охлаждаемом Air это разница между «успевает» и «отстаёт».
+
+```bash
+brew install whisper-cpp
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-small.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+micclaude --lang ru --backend whisper.cpp
+```
+
+Программа сама запускает `whisper-server`, дожидается загрузки модели и
+останавливает его при выходе. Именно сервер, а не разовый `whisper-cli`:
+одноразовый запуск перезагружает модель каждый раз, а при фразе раз в
+несколько секунд на это уходило бы больше, чем на само распознавание.
+
+Если сервер вы поднимаете сами или хотите один на страницу и стенограф:
+
+```toml
+[transcribe]
+backend = "whisper.cpp"
+autostart = false
+server_url = "http://127.0.0.1:8181"
+```
+
+В `model` можно писать имя (`small` — найдётся в `model_dir`) или путь к `.bin`.
+Через `server_args` пробрасываются любые флаги, например `["-t", "4"]`.
+
 ## Конспект встречи
 
 ```bash
@@ -250,7 +292,8 @@ micclaude --lang ru --observe \
 | Русский текст читает английский голос | Установите русский голос в системе и выберите его в настройках |
 | `could not find 'claude' on PATH` | Claude Code не установлен или не в `PATH` |
 | Ответ не приходит, статус висит на «думает» | Скорее всего Claude ждёт разрешения на инструмент — см. раздел про проект выше |
-| Распознаёт слишком медленно | `--model base` вместо `small`: быстрее, но заметно хуже на русском |
+| Распознаёт слишком медленно | На Mac — `--backend whisper.cpp` (Metal); иначе `--model base` вместо `small`: быстрее, но заметно хуже на русском |
+| `whisper-server` не найден | `brew install whisper-cpp`, либо укажите путь в `transcribe.server_binary` |
 | В расшифровке появляется «Продолжение следует...» | Это галлюцинация Whisper на тишине; такие фразы отсекаются, список пополняется в `transcribe.drop_phrases` |
 | Конспект пустой | Наблюдатель включается флагом `--observe`; во вкладке «Конспект» будет написано, если он выключен |
 | Микрофон не открывается | Разрешите доступ в адресной строке; проверьте, что вкладку открыли по `localhost`, а не по IP-адресу |

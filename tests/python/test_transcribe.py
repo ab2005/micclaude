@@ -98,6 +98,53 @@ class BackendTests(unittest.TestCase):
         else:  # pragma: no cover - only when the optional dep is installed
             self.skipTest("faster-whisper is installed")
 
+    def test_choosing_a_device_does_not_need_a_gpu(self):
+        from micclaude.transcribe import _has_cuda
+
+        self.assertIsInstance(_has_cuda(), bool)
+
+    def test_loading_reaches_the_model_with_a_device_chosen(self):
+        """Covers the path a machine with faster-whisper installed takes.
+
+        Without the stub this never runs here -- load() raises on the import
+        first -- which is how a NameError on the line after it survived.
+        """
+        import sys
+        import types
+
+        built = {}
+
+        class StubModel:
+            def __init__(self, model, device=None, compute_type=None):
+                built.update(model=model, device=device, compute_type=compute_type)
+
+        module = types.ModuleType("faster_whisper")
+        module.WhisperModel = StubModel
+        sys.modules["faster_whisper"] = module
+        self.addCleanup(sys.modules.pop, "faster_whisper", None)
+
+        FasterWhisperTranscriber(TranscribeConfig(model="small", device="auto")).load()
+        self.assertEqual(built["model"], "small")
+        self.assertIn(built["device"], ("cpu", "cuda"))
+
+    def test_an_explicit_device_is_honoured(self):
+        import sys
+        import types
+
+        built = {}
+
+        class StubModel:
+            def __init__(self, model, device=None, compute_type=None):
+                built["device"] = device
+
+        module = types.ModuleType("faster_whisper")
+        module.WhisperModel = StubModel
+        sys.modules["faster_whisper"] = module
+        self.addCleanup(sys.modules.pop, "faster_whisper", None)
+
+        FasterWhisperTranscriber(TranscribeConfig(device="cpu")).load()
+        self.assertEqual(built["device"], "cpu")
+
     def test_multipart_encodes_the_file(self):
         body, content_type = _multipart({"model": "whisper-1"}, filename="a.wav", file_bytes=b"RIFF")
         self.assertIn("multipart/form-data; boundary=", content_type)
