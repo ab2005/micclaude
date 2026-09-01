@@ -12,26 +12,27 @@
       <div class="brand">
         <img class="brand-mark" src="/icon.svg" alt="" width="24" height="24" />
         <h1>micclaude</h1>
-        <span class="tag" id="backend-tag">local</span>
+        <span class="tag" id="backend-tag" data-i18n="tag.localStt">local stt</span>
       </div>
 
       <div class="live">
         <span class="status" id="status" data-state="idle">
           <span class="status-dot" aria-hidden="true"></span>
-          <span id="status-text">Not listening</span>
+          <span id="status-text" data-i18n="status.idle">Not listening</span>
         </span>
-        <div class="meter" role="img" aria-label="Microphone level" title="Microphone level. The mark shows the speech threshold.">
+        <div class="meter" role="img" aria-label="Microphone level" data-i18n-title="meter.title">
           <div class="meter-fill" id="meter-fill"></div>
           <div class="meter-threshold" id="meter-threshold"></div>
         </div>
       </div>
 
       <div class="controls">
-        <button id="listen" class="button primary">Start listening</button>
-        <button id="ask-now" class="button" disabled title="Ask the next thing you say (Space)">
+        <button id="listen" class="button primary" data-i18n="button.listen">Start listening</button>
+        <button id="ask-now" class="button" disabled data-i18n="button.ask" data-i18n-title="button.ask.title">
           Ask now
         </button>
-        <button id="settings-toggle" class="button ghost" aria-expanded="false" aria-controls="settings">
+        <button id="settings-toggle" class="button ghost" aria-expanded="false" aria-controls="settings"
+                data-i18n="button.settings">
           Settings
         </button>
       </div>
@@ -40,81 +41,96 @@
     <main>
       <section class="feed" id="feed" aria-live="polite" aria-label="Transcript">
         <div class="empty" id="empty">
-          <p class="empty-title">Everything you say is transcribed here.</p>
+          <p class="empty-title" data-i18n="empty.title">Everything you say is transcribed here.</p>
           <p>
-            Claude only answers when you address it: say
-            <b><span class="wake-example">claude</span>, what does this error mean?</b>
+            <span data-i18n="empty.lead">Claude only answers when you address it:</span>
+            <b data-i18n="empty.example">claude, what does this error mean?</b>
           </p>
           <ul class="empty-hints">
-            <li>Say just <b class="wake-example">claude</b> and the next thing you say is the question.</li>
-            <li>Say <b>never mind</b> to cancel a pending question.</li>
-            <li>Press <kbd>Space</kbd> when the wake word keeps getting missed.</li>
+            <li data-i18n="empty.hint.arm"></li>
+            <li data-i18n="empty.hint.cancel"></li>
+            <li>
+              <span data-i18n="empty.hint.keyBefore">Press</span>
+              <kbd>Space</kbd>
+              <span data-i18n="empty.hint.keyAfter">when the wake word keeps getting missed.</span>
+            </li>
           </ul>
         </div>
       </section>
 
       <aside class="settings" id="settings" hidden>
-        <h2>Settings</h2>
+        <h2 data-i18n="settings.title">Settings</h2>
 
         <fieldset>
-          <legend>Microphone</legend>
-          <label for="device">Input device</label>
-          <select id="device"><option value="">System default</option></select>
+          <legend data-i18n="settings.microphone">Microphone</legend>
+          <label for="device" data-i18n="settings.device">Input device</label>
+          <select id="device"></select>
 
           <label for="threshold">
-            Sensitivity <span class="hint" id="threshold-value"></span>
+            <span data-i18n="settings.sensitivity">Sensitivity</span>
+            <span class="hint" id="threshold-value"></span>
           </label>
           <input type="range" id="threshold" min="0.002" max="0.08" step="0.001" />
-          <p class="note">Speech is detected above this level. The bar in the header shows the
-            current level, so watch it while you talk and while the room is quiet.</p>
+          <p class="note" data-i18n="settings.sensitivity.note"></p>
 
-          <label for="silence">End of phrase <span class="hint" id="silence-value"></span></label>
+          <label for="silence">
+            <span data-i18n="settings.silence">End of phrase</span>
+            <span class="hint" id="silence-value"></span>
+          </label>
           <input type="range" id="silence" min="200" max="2000" step="50" />
-          <p class="note">How long a pause has to be before your sentence is sent off.</p>
+          <p class="note" data-i18n="settings.silence.note"></p>
         </fieldset>
 
         <fieldset>
-          <legend>Wake word</legend>
-          <label for="wake">Words that address Claude</label>
-          <input type="text" id="wake" placeholder="claude" />
-          <p class="note">Comma separated. Close mishearings count too.</p>
-          <label class="check"><input type="checkbox" id="require-prefix" /> Require a greeting
-            ("hey claude", never a bare "claude")</label>
+          <legend data-i18n="settings.wake">Wake word</legend>
+          <label for="wake" data-i18n="settings.wake.label">Words that address Claude</label>
+          <input type="text" id="wake" />
+          <p class="note" data-i18n="settings.wake.note"></p>
+          <label class="check">
+            <input type="checkbox" id="require-prefix" />
+            <span data-i18n="settings.wake.requirePrefix"></span>
+          </label>
         </fieldset>
 
         <fieldset>
-          <legend>Replies</legend>
-          <label class="check"><input type="checkbox" id="speak" /> Speak replies out loud</label>
-          <label for="voice">Voice</label>
-          <select id="voice"><option value="">Browser default</option></select>
-          <label for="rate">Speed <span class="hint" id="rate-value"></span></label>
+          <legend data-i18n="settings.replies">Replies</legend>
+          <label class="check">
+            <input type="checkbox" id="speak" />
+            <span data-i18n="settings.speak">Speak replies out loud</span>
+          </label>
+          <label for="voice" data-i18n="settings.voice">Voice</label>
+          <select id="voice"></select>
+          <label for="rate">
+            <span data-i18n="settings.rate">Speed</span>
+            <span class="hint" id="rate-value"></span>
+          </label>
           <input type="range" id="rate" min="0.6" max="1.8" step="0.05" />
-          <label for="context">Transcript lines sent as context</label>
+          <label for="context" data-i18n="settings.context">Transcript lines sent as context</label>
           <input type="number" id="context" min="0" max="40" />
-          <p class="note">Recent speech Claude sees with each question, so "what did I just
-            say?" works. Set to 0 to send the question alone.</p>
+          <p class="note" data-i18n="settings.context.note"></p>
         </fieldset>
 
         <fieldset>
-          <legend>Session</legend>
+          <legend data-i18n="settings.interface">Interface</legend>
+          <label for="ui-language" data-i18n="settings.uiLanguage">Language</label>
+          <select id="ui-language"></select>
+        </fieldset>
+
+        <fieldset>
+          <legend data-i18n="settings.session">Session</legend>
           <dl class="facts" id="facts"></dl>
-          <button class="button ghost" id="new-session">Start a new Claude session</button>
-          <p class="note">Follow-up questions continue the same conversation until you reset it.</p>
+          <button class="button ghost" id="new-session" data-i18n="button.newSession"></button>
+          <p class="note" data-i18n="settings.session.note"></p>
         </fieldset>
       </aside>
     </main>
 
     <footer class="compose">
       <form id="compose-form">
-        <input
-          type="text"
-          id="compose-input"
-          placeholder="Or type a question for Claude"
-          autocomplete="off"
-        />
-        <button class="button" type="submit">Ask</button>
+        <input type="text" id="compose-input" autocomplete="off" data-i18n-placeholder="compose.placeholder" />
+        <button class="button" type="submit" data-i18n="button.send">Ask</button>
       </form>
-      <p class="footnote" id="footnote">Audio is transcribed on this machine and never leaves it.</p>
+      <p class="footnote" id="footnote" data-i18n="footnote.local"></p>
     </footer>
 
     <script type="module" src="/js/app.js"></script>

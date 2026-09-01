@@ -9,6 +9,8 @@ by name. Replies stream into the page and are spoken back.
 Nothing leaves your machine until a wake word is heard. The rest of the
 conversation is transcribed locally and stays there.
 
+Русскоязычное руководство: **[docs/README.ru.md](docs/README.ru.md)**.
+
 ## How it works
 
 ```
@@ -52,9 +54,10 @@ press **Start listening**, and talk. Chrome, Edge, and Safari all work; the page
 needs a secure context, which `localhost` provides.
 
 ```bash
+micclaude --lang ru                       # Russian: model, wake word, voice, interface
 micclaude --port 9000 --no-browser
 micclaude --model small.en --claude-dir ~/code/my-project
-micclaude --backend openai --language auto
+micclaude --backend openai --stt-language auto
 ```
 
 The input device is chosen in the page, not on the command line: only the
@@ -77,6 +80,43 @@ microphone is denied.
 Follow-up questions continue the same Claude session, so *"and what about the
 other one?"* works. **Start a new Claude session** in the settings panel resets
 it.
+
+## Other languages
+
+```bash
+micclaude --lang ru
+```
+
+One flag sets everything a language implies: a multilingual speech model, the
+recognition language, the wake word and its case forms, the phrases that cancel
+a question, the voice the browser speaks with, and the interface itself.
+
+| | English | Русский |
+| --- | --- | --- |
+| Wake word | `claude` | `Клавдий` |
+| Model | `base.en` | `small` |
+| Cancel | "never mind" | «отмена», «забудь», «проехали» |
+
+**The Russian wake word is not "Клод" on purpose.** Four letters is one edit
+away from *код* — a word said constantly when talking about code — and fuzzy
+matching would turn every mention of it into a question. Wake words shorter
+than `trigger.fuzzy_min_length` are therefore matched only against their listed
+spellings, never widened. `Клавдий` is seven letters with nothing ordinary
+beside it, so fuzzy matching stays on and still catches *Клавдия*, *Клавдию*
+and whatever else Whisper decides to write, including the Latin `Claude` it
+sometimes leaves mid-Russian.
+
+There is a Russian guide for using it day to day in
+[docs/README.ru.md](docs/README.ru.md).
+
+Adding a language is a preset in `server/micclaude/languages.py` plus a strings
+table in `web/js/i18n.js`; tests check that every language has a complete set of
+both. For a language with no preset, `--stt-language <code>` sets recognition
+alone and the wake word stays whatever you configure.
+
+Note that the `.en` models cannot transcribe anything but English. Asking for
+one with another language is refused at startup rather than silently producing
+nonsense.
 
 ## Giving Claude your project
 
@@ -112,32 +152,64 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 
 | Setting | Why you'd change it |
 | --- | --- |
+| `language` | `ru` for Russian: model, wake word, voice and interface at once |
 | `transcribe.model` | `tiny.en` for speed on a laptop, `small.en`/`medium` for accuracy |
 | `transcribe.backend` | `openai` to use a transcription API instead of a local model |
 | `audio.silence_ms` | Raise it if you are cut off mid-sentence |
 | `audio.energy_threshold` | Raise it in a noisy room, lower it if phrases are missed |
 | `trigger.wake_words` | Call it something else entirely |
 | `trigger.require_prefix` | Require "hey claude", never a bare "claude" |
+| `trigger.fuzzy_min_length` | Lower it only if your wake word is short and unlike any real word |
 | `claude.include_context_lines` | How much recent speech Claude sees with each question |
-| `transcript_file` | Keep a JSON-lines log of everything heard |
+| `transcript_dir` | Where the transcript is kept, or nothing to keep none |
 
 ## Accuracy notes
 
 Whisper spells names inconsistently, so `cloud`, `claud`, `clawed` and `clod`
-count as the wake word, and canonical wake words also match within one edit.
-Similar but distinct words (`loud`, `clouds`, `claudia`) deliberately do not
-trigger. Setting `transcribe.initial_prompt` to a sentence containing the name
-biases the decoder and helps further.
+count as the wake word, and wake words of at least `fuzzy_min_length` letters
+also match within one edit. Similar but distinct words (`loud`, `clouds`,
+`claudia`, Russian `код`) deliberately do not trigger. Setting
+`transcribe.initial_prompt` to a sentence containing the name biases the
+decoder and helps further.
 
 Speech detection is an energy threshold applied after the browser's own noise
 suppression. Watch the level meter in the header while the room is quiet and
 while you talk, then set the sensitivity slider between the two.
+
+## The transcript
+
+Everything recognized is written to `~/.micclaude/transcripts`, as JSON lines
+rotated into one file per hour inside a directory per day:
+
+```
+~/.micclaude/transcripts/2026-08-31/14.jsonl
+{"time": 1756662004.31, "text": "интеграционные тесты снова отваливаются"}
+{"time": 1756662011.87, "text": "Клавдий, из-за чего это обычно бывает?"}
+```
+
+Day and hour are local time, so "what did I say yesterday afternoon" is one
+`ls` away. The directory and its files are created owner-only (`0700`/`0600`),
+because a transcript holds everything said near the microphone — including the
+half of the room that never addressed Claude.
+
+```bash
+micclaude --no-transcript                 # keep nothing
+micclaude --transcript-dir /srv/notes     # keep it somewhere else
+micclaude --transcript ~/all.jsonl        # one file, rotate it yourself
+```
+
+The page shows the current location in the settings panel, and says in the
+footer that the text is being kept. Nothing prunes old files; they are plain
+text and small, but they are yours to delete.
 
 ## Privacy and exposure
 
 - Audio is transcribed by a model running on your machine. It is uploaded to a
   third party only if you explicitly choose the `openai` backend, which the
   page then says in the footer.
+- The recognized **text** is written to disk by default, as described above.
+  The audio itself is never stored: each utterance lives in memory for the
+  length of one request.
 - The server binds `127.0.0.1`. It refuses requests carrying another origin or
   an unexpected `Host` header, so a page you visit elsewhere cannot drive your
   microphone session.
@@ -147,20 +219,25 @@ while you talk, then set the sensitivity slider between the two.
 ## Tests
 
 ```bash
-make test          # 111 unit tests: Python + JavaScript, no deps
+make test          # 167 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 
 The unit tests need no microphone, no model and no API key: audio is synthetic
 frames, and the Claude CLI is a stub shell script. The end-to-end test runs the
 whole stack — capture, segmentation, upload, wake word, SSE, rendering — in a
-real browser, with a generated WAV played into Chromium's fake microphone.
+real browser, with a generated WAV played into Chromium's fake microphone, in
+both English and Russian.
+
+Some settings exist twice, once for the server and once for the page. A test
+reads the browser's defaults through `node` and compares them to the Python
+dataclasses, so the two copies cannot drift apart unnoticed.
 
 ## Layout
 
 ```
-server/micclaude/    config, transcription backends, Claude CLI client, HTTP server
-web/                 index.html, styles.css, ES modules (no build step)
+server/micclaude/    config, language presets, transcription, Claude CLI client, HTTP server
+web/                 index.html, styles.css, ES modules (no build step), en/ru strings
 tests/python/        server tests
 tests/js/            browser-logic tests (node --test)
 tests/e2e/           Chromium end-to-end test and its fixture server

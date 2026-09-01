@@ -50,10 +50,11 @@ function writeFakeMicAudio() {
 }
 
 /** Start fixture_server.py and wait for it to print its URL. */
-function startServer() {
+function startServer(env = {}) {
   const server = spawn('python3', [path.join(here, 'fixture_server.py')], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...env },
   });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('server did not start in time')), 15000);
@@ -95,6 +96,8 @@ if (chromium) {
       await page.waitForSelector('#facts dd', { state: 'attached' });
       assert.equal(await page.textContent('#status-text'), 'Not listening');
       assert.match(await page.textContent('#facts'), /stub/);
+      assert.match(await page.textContent('#facts'), /transcripts/, 'it says where speech is kept');
+      assert.match(await page.textContent('#footnote'), /saved on this machine/);
       assert.equal(await page.inputValue('#wake'), 'claude');
     });
 
@@ -141,7 +144,64 @@ if (chromium) {
       await page.waitForSelector('#wake');
       assert.equal(await page.inputValue('#wake'), 'computer');
       assert.equal(await page.inputValue('#context'), '0');
-      assert.match(await page.textContent('.empty'), /computer/);
+      assert.match(await page.textContent('.empty'), /Computer, what does this error mean\?/,
+        'the example uses the new wake word, capitalized as a name');
+    });
+
+    assert.deepEqual(errors, [], 'no uncaught page errors');
+  });
+
+  test('russian end-to-end', async (t) => {
+    const { server, url } = await startServer({
+      MICCLAUDE_LANG: 'ru',
+      MICCLAUDE_FAKE_TRANSCRIPT: 'Клавдий, что это такое?',
+    });
+    const browser = await chromium.launch({
+      args: [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        `--use-file-for-fake-audio-capture=${writeFakeMicAudio()}`,
+      ],
+    });
+    const context = await browser.newContext({ permissions: ['microphone'], locale: 'en-US' });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    t.after(async () => {
+      await browser.close();
+      server.kill();
+    });
+
+    await page.goto(url);
+
+    await t.test('the page follows the language the server was started with', async () => {
+      await page.waitForSelector('#facts dd', { state: 'attached' });
+      assert.equal(await page.textContent('#listen'), 'Начать слушать');
+      assert.equal(await page.textContent('#status-text'), 'Не слушаю');
+      assert.equal(await page.getAttribute('html', 'lang'), 'ru');
+      assert.equal(await page.inputValue('#wake'), 'клавдий');
+      assert.match(await page.textContent('.empty'), /Клавдий, что означает эта ошибка\?/);
+    });
+
+    await t.test('speaking Russian reaches Claude with the name stripped', async () => {
+      await page.click('#listen');
+      await page.waitForSelector('.heard', { timeout: 20000 });
+      assert.match(await page.textContent('.heard'), /Клавдий, что это такое\?/);
+      await page.waitForSelector('.exchange .answer:not(.cursor)', { timeout: 20000 });
+      assert.equal(await page.textContent('.exchange .question'), 'что это такое?');
+      await page.click('#listen');
+    });
+
+    await t.test('the interface language can be overridden and is remembered', async () => {
+      await page.click('#settings-toggle');
+      await page.selectOption('#ui-language', 'en');
+      assert.equal(await page.textContent('#listen'), 'Start listening');
+      await page.reload();
+      await page.waitForSelector('#facts dd', { state: 'attached' });
+      assert.equal(await page.textContent('#listen'), 'Start listening');
+      assert.equal(await page.getAttribute('html', 'lang'), 'en');
+      assert.equal(await page.inputValue('#wake'), 'клавдий', 'the wake word is not translated');
     });
 
     assert.deepEqual(errors, [], 'no uncaught page errors');

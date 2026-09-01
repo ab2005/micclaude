@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from . import languages
+
 
 @dataclass
 class ServerConfig:
@@ -79,12 +81,21 @@ class TriggerConfig:
     require_prefix: bool = False
     fuzzy: bool = True
     max_wake_distance: int = 1
+    fuzzy_min_length: int = 6
+    """Only wake words at least this long are widened by edit distance. Short
+    names collide badly: "клод" is one edit from "код", which nobody means as
+    a wake word."""
     scan_window_words: int = 4
     """The wake word must appear within the first N words of an utterance."""
 
     cancel_phrases: list[str] = field(
         default_factory=lambda: ["never mind", "nevermind", "cancel that", "forget it"]
     )
+    filler: list[str] = field(
+        default_factory=lambda: ["please", "um", "uh", "so", "well", "hey", "okay", "ok"]
+    )
+    """Dropped from the start of a question: "claude, please open the file"."""
+
     min_prompt_chars: int = 2
 
 
@@ -107,9 +118,9 @@ class ClaudeConfig:
     append_system_prompt: str = (
         "You are answering over a live voice link. The user's words reached you through "
         "speech-to-text, so expect homophones and missing punctuation, and ask for a "
-        "repeat when a request is genuinely ambiguous. Reply in at most a few sentences "
-        "of plain spoken prose: no markdown, no bullet lists, no code blocks unless the "
-        "user explicitly asks to hear code."
+        "repeat when a request is genuinely ambiguous. Answer in the language the user "
+        "spoke. Reply in at most a few sentences of plain spoken prose: no markdown, no "
+        "bullet lists, no code blocks unless the user explicitly asks to hear code."
     )
 
     include_context_lines: int = 6
@@ -121,6 +132,9 @@ class SpeechConfig:
     """Browser speech synthesis for replies."""
 
     enabled: bool = True
+    lang: str = "en-US"
+    """BCP-47 tag handed to the browser, which picks a voice for it."""
+
     voice: str | None = None
     rate: float = 1.0
     max_chars: int = 700
@@ -135,11 +149,31 @@ class Config:
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
     speech: SpeechConfig = field(default_factory=SpeechConfig)
 
+    language: str = "en"
+    """Spoken language. Sets the speech model, the wake word and the phrases
+    that cancel a question; see micclaude/languages.py. Anything set
+    explicitly still wins over the preset."""
+
+    transcript_dir: str | None = "~/.micclaude/transcripts"
+    """Where recognized speech is kept, as JSON lines rotated into one file per
+    hour inside a directory per day. Set to nothing to keep no transcript."""
+
     transcript_file: str | None = None
-    """Append every recognized utterance here as JSON lines."""
+    """One fixed file instead of the rotated directory, when you would rather
+    manage rotation yourself."""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def validate(self) -> None:
+        """Catch settings that cannot work before the server starts."""
+        if self.language != "en" and languages.is_english_only(self.transcribe.model):
+            preset = languages.PRESETS.get(self.language)
+            suggestion = preset.model if preset else "small"
+            raise ConfigError(
+                f"speech model '{self.transcribe.model}' is English-only, but the language "
+                f"is '{self.language}'. Use a multilingual model, for example '{suggestion}'."
+            )
 
     def client_settings(self) -> dict[str, Any]:
         """The subset the browser needs. Never includes CLI paths or tool grants."""
@@ -148,6 +182,7 @@ class Config:
             "trigger": asdict(self.trigger),
             "speech": asdict(self.speech),
             "contextLines": self.claude.include_context_lines,
+            "language": self.language,
         }
 
 
@@ -172,12 +207,36 @@ def find_config_file(explicit: str | None = None) -> Path | None:
     return None
 
 
+def apply_language(config: Config, code: str) -> Config:
+    """Set everything a spoken language implies. Explicit settings win later."""
+    preset = languages.get(code)
+    config.language = preset.code
+    config.transcribe.language = preset.code
+    config.transcribe.model = preset.model
+    config.transcribe.initial_prompt = preset.initial_prompt
+    config.trigger.wake_words = list(preset.wake_words)
+    config.trigger.aliases = list(preset.aliases)
+    config.trigger.prefixes = list(preset.prefixes)
+    config.trigger.cancel_phrases = list(preset.cancel_phrases)
+    config.trigger.filler = list(preset.filler)
+    config.speech.lang = preset.bcp47
+    return config
+
+
 def load_config(path: str | os.PathLike[str] | None = None) -> Config:
     config = Config()
     if path is None:
         return config
     with open(path, "rb") as handle:
         data = tomllib.load(handle)
+    language = data.get("language")
+    if language is not None:
+        if not isinstance(language, str):
+            raise ConfigError(f"{path}: 'language' must be a string")
+        try:
+            apply_language(config, language)
+        except KeyError as exc:
+            raise ConfigError(f"{path}: {exc.args[0]}") from exc
     _apply(config, data, path=str(path))
     return config
 
