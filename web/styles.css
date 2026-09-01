@@ -247,6 +247,13 @@ main:has(.settings:not([hidden])) {
   font-size: 14px;
 }
 
+/* Speech that reached us from a recorder elsewhere, not this page's mic. */
+.heard[data-source] time::after {
+  content: "·";
+  margin-inline-start: 4px;
+  color: var(--accent);
+}
+
 .heard time {
   flex: none;
   font-variant-numeric: tabular-nums;

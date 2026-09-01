@@ -133,6 +133,28 @@ if (chromium) {
       await page.click('#listen');
     });
 
+    await t.test('speech recognized elsewhere reaches the page and Claude', async () => {
+      // What a separate recorder process on the same machine would post.
+      const response = await fetch(new URL('/api/utterance', url), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hey claude, who said that?', source: 'recorder' }),
+      });
+      assert.equal(response.status, 201);
+
+      await page.waitForFunction(
+        () => [...document.querySelectorAll('.heard')].some((row) => row.dataset.source === 'recorder'),
+        null,
+        { timeout: 10000 },
+      );
+      await page.waitForFunction(
+        () => [...document.querySelectorAll('.exchange .question')]
+          .some((node) => node.textContent === 'who said that?'),
+        null,
+        { timeout: 20000 },
+      );
+    });
+
     await t.test('settings persist across a reload', async () => {
       await page.click('#settings-toggle');
       await page.waitForSelector('#wake:visible');

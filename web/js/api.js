@@ -45,6 +45,34 @@ async function getJson(path) {
 
 export const getHealth = () => getJson('/api/health');
 export const getSettings = () => getJson('/api/settings');
+export const getTranscript = () => getJson('/api/transcript');
+
+/**
+ * This page's identity, so it can ignore the echo of its own utterances
+ * coming back over the event stream.
+ */
+export const clientId = `page-${Math.random().toString(36).slice(2, 10)}`;
+
+/**
+ * Subscribe to everything the server recognizes, including speech that came
+ * from a separate recorder process rather than this browser.
+ *
+ * Returns a function that unsubscribes. EventSource reconnects on its own, so
+ * a server restart does not need a page reload.
+ */
+export function subscribe({ onUtterance, onOpen, onError } = {}) {
+  const source = new EventSource('/api/events');
+  source.addEventListener('utterance', (event) => {
+    try {
+      onUtterance?.(JSON.parse(event.data));
+    } catch (error) {
+      console.warn('bad utterance event', error);
+    }
+  });
+  source.addEventListener('open', () => onOpen?.());
+  source.addEventListener('error', () => onError?.());
+  return () => source.close();
+}
 
 export async function resetSession() {
   await fetch('/api/session/reset', { method: 'POST' });
@@ -54,7 +82,7 @@ export async function resetSession() {
 export async function transcribe(wav, { signal } = {}) {
   const response = await fetch('/api/transcribe', {
     method: 'POST',
-    headers: { 'Content-Type': 'audio/wav' },
+    headers: { 'Content-Type': 'audio/wav', 'X-Client-Id': clientId },
     body: wav,
     signal,
   });
