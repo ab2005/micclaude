@@ -32,7 +32,17 @@ build step, no bundler, no framework.
 ## Install
 
 ```bash
-git clone <this repo> && cd micclaude
+git clone https://github.com/ab2005/micclaude && cd micclaude
+./start.sh                 # English, local Whisper
+./start.sh ru              # Russian
+./start.sh ru whisper.cpp  # Russian on Metal (brew install whisper-cpp first)
+```
+
+`start.sh` makes the venv, installs what is missing, fetches the model on first
+run, and starts the server. Everything it installs stays in `.venv` here. The
+long way, if you would rather do it yourself:
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt      # local speech-to-text
 ```

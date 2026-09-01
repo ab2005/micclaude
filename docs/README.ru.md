@@ -12,6 +12,16 @@
 
 ```bash
 git clone https://github.com/ab2005/micclaude && cd micclaude
+./start.sh ru              # русский, локальный Whisper
+./start.sh ru whisper.cpp  # русский на Metal (сначала brew install whisper-cpp)
+```
+
+`start.sh` сам создаст `.venv`, доставит недостающее, скачает модель при первом
+запуске и поднимет сервер. Всё установленное остаётся в `.venv` рядом.
+
+Если хочется вручную:
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```

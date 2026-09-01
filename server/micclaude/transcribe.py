@@ -391,6 +391,10 @@ def is_phantom(text: str, phrases: Sequence[str]) -> bool:
     if not cleaned:
         return False
     return any(cleaned == re.sub(r"\s+", " ", phrase.strip().lower()).strip(" .!?,-—…") for phrase in phrases)
+
+
+def _has_cuda() -> bool:
+    """Is there a GPU CTranslate2 can use? Absent one, faster-whisper runs on CPU."""
     try:
         import ctranslate2  # type: ignore
 
