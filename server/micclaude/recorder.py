@@ -164,6 +164,9 @@ def record(config: Config, *, server: str, device: int | str | None, source: str
     finally:
         microphone.stop()
         delivery.close()
+        stop = getattr(transcriber, "stop", None)
+        if callable(stop):
+            stop()
         if delivery.pending:
             print(
                 f"{len(delivery.pending)} line(s) could not be delivered; "
@@ -186,7 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--server", default=DEFAULT_SERVER, help=f"where to post (default {DEFAULT_SERVER})")
     parser.add_argument("--lang", choices=sorted(PRESETS), help="spoken language preset")
     parser.add_argument("--model", help="whisper model, e.g. tiny.en, base.en, small")
-    parser.add_argument("--backend", choices=["faster-whisper", "openai", "null"])
+    parser.add_argument("--backend", choices=["faster-whisper", "whisper.cpp", "openai", "null"])
     parser.add_argument("--device", help="input device index or name substring")
     parser.add_argument("--list-devices", action="store_true", help="list input devices and exit")
     parser.add_argument("--source", default="recorder", help="name this recorder in the transcript")

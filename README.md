@@ -247,7 +247,7 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 | --- | --- |
 | `language` | `ru` for Russian: model, wake word, voice and interface at once |
 | `transcribe.model` | `tiny.en` for speed on a laptop, `small.en`/`medium` for accuracy |
-| `transcribe.backend` | `openai` to use a transcription API instead of a local model |
+| `transcribe.backend` | `whisper.cpp` on a Mac (Metal), `openai` for a hosted API |
 | `audio.silence_ms` | Raise it if you are cut off mid-sentence |
 | `audio.energy_threshold` | Raise it in a noisy room, lower it if phrases are missed |
 | `trigger.wake_words` | Call it something else entirely |
@@ -258,6 +258,38 @@ Everything else lives in a TOML file: copy `micclaude.example.toml` to
 | `observer.enabled` | Follow the conversation and keep notes, not just answer |
 | `observer.rules` | What to watch for, in plain language |
 | `transcribe.drop_phrases` | Subtitle ghosts Whisper invents out of silence |
+
+## whisper.cpp on a Mac
+
+`faster-whisper` runs on CTranslate2, which does not use Metal — on Apple
+silicon it is CPU-only. whisper.cpp does use Metal, and on a passively cooled
+machine that is the difference between keeping up and falling behind.
+
+```bash
+brew install whisper-cpp
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-small.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+micclaude --lang ru --backend whisper.cpp
+```
+
+micclaude starts `whisper-server` itself, waits for it to load, and stops it on
+the way out. It talks to the server rather than the one-shot `whisper-cli`
+because the CLI reloads the model on every run — at a phrase every few seconds
+that would dominate the cost.
+
+To share one server between the page and a recorder, or to run it yourself:
+
+```toml
+[transcribe]
+backend = "whisper.cpp"
+autostart = false
+server_url = "http://127.0.0.1:8181"
+```
+
+`model` takes either a name (`small`, looked up in `model_dir`) or a path to a
+`.bin`. `server_args` passes extra flags through, e.g. `["-t", "4"]`.
 
 ## Accuracy notes
 
@@ -321,7 +353,7 @@ text and small, but they are yours to delete.
 ## Tests
 
 ```bash
-make test          # 256 unit tests: Python + JavaScript, no deps
+make test          # 276 unit tests: Python + JavaScript, no deps
 make test-e2e      # drives the real page in Chromium (needs `npm install`)
 ```
 

@@ -197,6 +197,9 @@ class App:
         """Send whatever the observer still holds, then let go."""
         self.observer.stop()
         self.events.close()
+        stop = getattr(self.transcriber, "stop", None)
+        if callable(stop):
+            stop()  # a whisper-server we started is ours to stop
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -92,6 +92,27 @@ class TranscribeConfig:
     api_model: str = "whisper-1"
     api_timeout: float = 60.0
 
+    # --- whisper.cpp -------------------------------------------------------
+    # whisper.cpp is the fast path on Apple silicon: it uses Metal, which
+    # CTranslate2 (faster-whisper) does not, so on a Mac it is the difference
+    # between keeping up and falling behind. We talk to whisper-server rather
+    # than the one-shot CLI because the CLI reloads the model on every run.
+
+    server_url: str = "http://127.0.0.1:8181"
+    server_binary: str = "whisper-server"
+    autostart: bool = True
+    """Start whisper-server ourselves and stop it on the way out. Turn this off
+    to point at one you run yourself."""
+
+    model_dir: str = "~/.cache/whisper.cpp"
+    """Where ggml model files live, when `model` is a bare name like "small"."""
+
+    server_args: list[str] = field(default_factory=list)
+    """Extra flags for whisper-server, e.g. ["-t", "4"] for thread count."""
+
+    startup_timeout: float = 120.0
+    """Loading a large model on a cold cache is not quick."""
+
 
 @dataclass
 class TriggerConfig:

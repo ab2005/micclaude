@@ -12,15 +12,21 @@ from __future__ import annotations
 import array
 import io
 import json
-import re
 import logging
 import math
 import os
+import re
+import shutil
+import subprocess
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, Sequence
 
 from .config import TranscribeConfig
@@ -173,6 +179,150 @@ class FasterWhisperTranscriber:
         return text
 
 
+class WhisperCppTranscriber:
+    """whisper.cpp through its own HTTP server.
+
+    On Apple silicon this is the fast path: whisper.cpp uses Metal, which
+    CTranslate2 -- and so faster-whisper -- does not. On a passively cooled
+    machine that is the difference between keeping up and falling behind.
+
+    We speak to ``whisper-server`` rather than the one-shot CLI because the CLI
+    reloads the model on every invocation; at a few utterances a minute that
+    would dominate the cost. By default the server is ours to start and stop;
+    point ``server_url`` at your own and set ``autostart = false`` to share one.
+    """
+
+    name = "whisper.cpp"
+
+    def __init__(self, config: TranscribeConfig) -> None:
+        self.config = config
+        self._process: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------ model
+
+    def model_path(self) -> Path:
+        """Resolve ``model`` to a ggml file: a path as given, a name looked up."""
+        raw = self.config.model.strip()
+        candidate = Path(raw).expanduser()
+        if candidate.suffix == ".bin" or "/" in raw:
+            return candidate
+        name = raw if raw.startswith("ggml-") else f"ggml-{raw}"
+        return (Path(self.config.model_dir).expanduser() / name).with_suffix(".bin")
+
+    def server_argv(self, model: Path, port: int) -> list[str]:
+        argv = [self.config.server_binary, "-m", str(model), "--port", str(port)]
+        if self.config.language:
+            argv += ["-l", self.config.language]
+        return argv + list(self.config.server_args)
+
+    # ----------------------------------------------------------------- server
+
+    def load(self) -> None:
+        """Make sure something is listening, starting it if that is our job."""
+        with self._lock:
+            if self._reachable():
+                return
+            if not self.config.autostart:
+                raise TranscriptionError(
+                    f"nothing is listening on {self.config.server_url}. Start whisper-server "
+                    "there, or set transcribe.autostart to let micclaude start it."
+                )
+            self._start()
+
+    def _reachable(self) -> bool:
+        try:
+            urllib.request.urlopen(self.config.server_url, timeout=1.0)
+        except urllib.error.HTTPError:
+            return True  # answered, even if it dislikes the path
+        except (urllib.error.URLError, OSError):
+            return False
+        return True
+
+    def _start(self) -> None:
+        if shutil.which(self.config.server_binary) is None:
+            raise TranscriptionError(
+                f"'{self.config.server_binary}' is not on PATH. On a Mac: "
+                "'brew install whisper-cpp'. Elsewhere, build whisper.cpp and put "
+                "its server on PATH, or set transcribe.server_binary."
+            )
+        model = self.model_path()
+        if not model.is_file():
+            raise TranscriptionError(
+                f"no speech model at {model}. Download one, for example:\n"
+                f"  mkdir -p {model.parent} && curl -L -o {model} \\\n"
+                "    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+                f"{model.name}"
+            )
+        port = urllib.parse.urlsplit(self.config.server_url).port or 8181
+        argv = self.server_argv(model, port)
+        log.info("starting %s", " ".join(argv))
+        try:
+            self._process = subprocess.Popen(
+                argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+            )
+        except OSError as exc:
+            raise TranscriptionError(f"could not start {self.config.server_binary}: {exc}") from exc
+        self._await_ready()
+
+    def _await_ready(self) -> None:
+        deadline = time.monotonic() + self.config.startup_timeout
+        while time.monotonic() < deadline:
+            if self._process is not None and self._process.poll() is not None:
+                stderr = self._process.stderr.read() if self._process.stderr else ""
+                tail = stderr.strip().splitlines()[-1] if stderr.strip() else "no output"
+                self._process = None
+                raise TranscriptionError(f"{self.config.server_binary} exited at startup: {tail}")
+            if self._reachable():
+                return
+            time.sleep(0.25)
+        self.stop()
+        raise TranscriptionError(
+            f"{self.config.server_binary} did not come up within "
+            f"{self.config.startup_timeout:.0f}s"
+        )
+
+    def stop(self) -> None:
+        """Stop the server, if it is one we started."""
+        process, self._process = self._process, None
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:  # pragma: no cover - stubborn child
+            process.kill()
+
+    # ------------------------------------------------------------ transcribe
+
+    def transcribe(self, utterance: Utterance) -> str:
+        self.load()
+        fields = {"response_format": "json", "temperature": "0"}
+        if self.config.language:
+            fields["language"] = self.config.language
+        body, content_type = _multipart(fields, filename="speech.wav", file_bytes=utterance.to_wav())
+        request = urllib.request.Request(
+            self.config.server_url.rstrip("/") + "/inference",
+            data=body,
+            headers={"Content-Type": content_type},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.config.api_timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise TranscriptionError(f"whisper-server returned {exc.code}: {exc.reason}") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise TranscriptionError(f"whisper-server is unreachable: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise TranscriptionError(f"whisper-server answered with something odd: {exc}") from exc
+
+        text = str(payload.get("text") or "").strip()
+        if is_phantom(text, self.config.drop_phrases):
+            log.info("dropping a phantom phrase from silence: %r", text)
+            return ""
+        return text
+
+
 class OpenAITranscriber:
     """Any OpenAI-compatible ``/audio/transcriptions`` endpoint."""
 
@@ -253,6 +403,8 @@ def build_transcriber(config: TranscribeConfig) -> Transcriber:
     backend = config.backend.lower().replace("_", "-")
     if backend in ("faster-whisper", "whisper", "local"):
         return FasterWhisperTranscriber(config)
+    if backend in ("whisper.cpp", "whispercpp", "whisper-cpp", "metal"):
+        return WhisperCppTranscriber(config)
     if backend in ("openai", "api", "http"):
         return OpenAITranscriber(config)
     if backend in ("null", "none", "off"):

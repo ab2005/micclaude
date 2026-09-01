@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     server.add_argument("--no-browser", action="store_true", help="do not open a browser window")
 
     stt = parser.add_argument_group("transcription")
-    stt.add_argument("--backend", choices=["faster-whisper", "openai", "null"])
+    stt.add_argument("--backend", choices=["faster-whisper", "whisper.cpp", "openai", "null"])
     stt.add_argument("--model", help="whisper model, e.g. tiny.en, base.en, small.en, medium")
     stt.add_argument(
         "--stt-language",
